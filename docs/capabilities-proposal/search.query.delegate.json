@@ -1,0 +1,21 @@
+{
+  "id": "search.query.delegate",
+  "version": "1.0",
+  "owner": "search",
+  "status": "active",
+  "visibility": "first-party",
+  "description": "Query the index on behalf of a person: X-OV-Subject (usr_/gst_) plus the X-OV-Groups and X-OV-Entitlements the calling first-party service has just resolved for that person. Without X-OV-Subject the service sees public documents only. Drafts, unpublished and deleted documents are never returned to anyone.",
+  "permissions": [
+    "search:read"
+  ],
+  "resourceConstraints": [
+    "none"
+  ],
+  "quotaClass": "search-query",
+  "events": [],
+  "implementedBy": [
+    "GET /api/v1/search",
+    "GET /api/v1/suggest",
+    "GET /api/v1/documents/:owner/:type/:id"
+  ]
+}

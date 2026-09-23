@@ -1,0 +1,18 @@
+{
+  "repository": "OpenVibers/OpenVibe.Search",
+  "stage": "alpha",
+  "code": true,
+  "wave": "W14",
+  "plan": "OpenVibe End-to-End Realignment & Implementation Plan, revision 3 (20 Sep 2026)",
+  "runtime": "node 22, express, better-sqlite3 (FTS5)",
+  "port": 4710,
+  "domain": "search.openvibe.network",
+  "contracts": "openvibe-contracts v0.7.0",
+  "capabilities": ["search.document.write", "search.query.delegate"],
+  "capabilitiesRegistered": false,
+  "contractsProposed": ["search.index-document@1"],
+  "engine": "sqlite-fts5 (docs/adr-engine.md)",
+  "deployed": false,
+  "indexedProducers": [],
+  "updated": "2026-09-22"
+}

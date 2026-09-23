@@ -1,0 +1,9 @@
+{
+  "id": "search.index-document",
+  "version": "1.0.0",
+  "owner": "search",
+  "schema": "search/index-document.v1.json",
+  "visibility": "first-party",
+  "compatibility": "backward",
+  "status": "active"
+}

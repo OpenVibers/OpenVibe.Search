@@ -1,0 +1,26 @@
+{
+  "id": "search.document.write",
+  "version": "1.0",
+  "owner": "search",
+  "status": "active",
+  "visibility": "first-party",
+  "description": "Index, replace or tombstone the calling service's own documents (search.index-document@1) and read its own inventory for reconciliation. The owner in the path must be the principal's service slug (svc:wiki writes owner wiki only). Revision-ordered: an older revision never overwrites a newer one, and at equal revision a deletion wins.",
+  "inputSchema": "search.index-document@1",
+  "permissions": [
+    "search:write"
+  ],
+  "resourceConstraints": [
+    "owner"
+  ],
+  "quotaClass": "search-write",
+  "events": [
+    "search.document.indexed",
+    "search.document.removed"
+  ],
+  "implementedBy": [
+    "PUT|DELETE /api/v1/documents/:owner/:type/:id",
+    "GET /api/v1/owners/:owner/documents",
+    "GET /api/v1/owners/:owner/documents/:type/:id",
+    "GET /api/v1/owners/:owner/rejections"
+  ]
+}

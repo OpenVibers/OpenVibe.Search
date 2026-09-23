@@ -1,0 +1,31 @@
+[Unit]
+Description=OpenVibe.Search — permission-aware index and query API (SQLite FTS5)
+# Network (openvibe-network) signs the tokens this service verifies. Search starts without it
+# and keeps retrying the JWKS fetch; /api/ready stays 503 until the key has loaded.
+After=network.target
+Wants=openvibe-network.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/openvibe.search
+EnvironmentFile=/etc/openvibe/search.env
+Environment=NODE_ENV=production
+Environment=PORT=4710
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node /opt/openvibe.search/server/index.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The code tree stays read-only; the index lives in /var/lib/openvibe-search.
+StateDirectory=openvibe-search
+Environment=SEARCH_DB_PATH=/var/lib/openvibe-search/search.db
+
+[Install]
+WantedBy=multi-user.target

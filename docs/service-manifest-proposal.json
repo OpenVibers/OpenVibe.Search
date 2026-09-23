@@ -1,0 +1,30 @@
+{
+  "version": "0.1.0",
+  "contractRanges": {
+    "openvibe-contracts": ">=0.7.0 <1.0.0"
+  },
+  "id": "search",
+  "name": "OpenVibe.Search",
+  "status": "alpha",
+  "repository": "OpenVibers/OpenVibe.Search",
+  "domains": [
+    "search.openvibe.network"
+  ],
+  "publicOrigin": "https://search.openvibe.network",
+  "health": "/api/health",
+  "ready": "/api/ready",
+  "capabilities": [
+    "search.document.write",
+    "search.query.delegate"
+  ],
+  "eventsProduced": [
+    "search.document.indexed",
+    "search.document.removed"
+  ],
+  "eventsConsumed": [
+    "*.index_document.upserted",
+    "*.index_document.deleted"
+  ],
+  "namespacesOwned": [],
+  "notes": "Canonical index document (search.index-document@1), event-fed and direct indexing with revision ordering and tombstones, permission-aware query over SQLite FTS5 (docs/adr-engine.md). Anonymous queries need no token."
+}
