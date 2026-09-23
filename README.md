@@ -3,8 +3,11 @@
 > Permission-aware discovery for the network: the canonical index document, event-fed indexing,
 > an ACL-filtered query API, and deletion/visibility propagation.
 
-**Status:** alpha (roadmap Wave 14). Runs and is tested; not deployed, and no product indexes into it yet.  
-**Domain:** `search.openvibe.network` (still a placeholder on OpenVibe.Sites until the launch rule below holds)  
+**Status:** alpha (roadmap Wave 14). Deployed internally, not launched: it runs on the production host
+(127.0.0.1:4710 only, since 2026-09-23) and is fed through Events, but the index holds only 10 wiki
+tombstones and 0 public documents.  
+**Domain:** `search.openvibe.network` (no vhost installed yet: the name currently falls through to the
+admin.openvibe.network placeholder; it goes public only when the launch rule below holds)  
 **Plan:** OpenVibe End-to-End Realignment & Implementation Plan, revision 3 — roadmap §4.2 A, §15.12, §29, §32.3.  
 **License:** AGPL-3.0.
 
@@ -100,7 +103,7 @@ outbox relayed to Events when `EVENTS_URL` is set.
 
 ## Owns
 
-- the index document contract (proposed as `search.index-document@1`, [docs/contracts-proposal/](docs/contracts-proposal/))
+- the index document contract (`search.index-document@1`, released in openvibe-contracts v0.12.0; proposal in [docs/contracts-proposal/](docs/contracts-proposal/))
 - `documents`, `doc_acl`, `doc_facets`, `fts_public`, `fts_restricted`, `idempotency_receipts`,
   `ingest_rejections`, `event_outbox` (SQLite; engine decision in [docs/adr-engine.md](docs/adr-engine.md))
 - the query API and its ACL filtering; deletion and visibility-change propagation
@@ -117,16 +120,16 @@ outbox relayed to Events when `EVENTS_URL` is set.
 - OpenVibe.Network (signing key; service principal `search`)
 - OpenVibe.Events (index-document deliveries in, `search.document.*` out)
 
-## Capabilities (proposed, [docs/capabilities-proposal/](docs/capabilities-proposal/))
+## Capabilities (released in openvibe-contracts v0.12.0; proposal in [docs/capabilities-proposal/](docs/capabilities-proposal/))
 
 | Capability | Routes |
 |---|---|
 | `search.document.write` | `PUT/DELETE /api/v1/documents/:owner/:type/:id`, `/api/v1/owners/:owner/...` (own owner only) |
 | `search.query.delegate` | the query routes, acting for `X-OV-Subject` |
 
-Not in `openvibe-contracts` v0.7.0 yet; [server/auth.js](server/auth.js) decides them with the
-contracts grant rule until a release defines them. CI's `openvibe-contracts-check` step is
-commented out until the service manifest ([docs/service-manifest-proposal.json](docs/service-manifest-proposal.json)) ships.
+Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.13.0);
+[server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
+`openvibe-contracts-check --service search`.
 
 ## Acceptance (tests)
 
@@ -140,8 +143,14 @@ commented out until the service manifest ([docs/service-manifest-proposal.json](
 - outbox relay to Events, retry and poison isolation (`test/outbox.test.js`)
 - proposals valid against the contracts schemas (`test/proposals.test.js`)
 
-Not yet demonstrated: an end-to-end run with a real product publishing through a deployed Events
-(no product exists yet; OpenVibe.Sources' `sources/item` documents are the first producer).
+Not yet demonstrated: a document with content indexed end to end in production. The Events
+subscription delivered 20 wiki events; the 10 upserts were rejected (`owner_not_accepted`, since
+fixed) and only the 10 tombstones landed. Wiki pages enter the index once a person reviews them;
+Sources has every seed disabled. Nobody consumes `search.document.removed` yet (no cache, sitemap
+or CDN purge).
+
+Restore drill: `ovhost drill search` passed on the production host on 2026-09-23 (integrity check,
+readiness, identical query answers, row counts; see OpenVibe.Host `docs/restore-drills.md`).
 
 ## Launch rule
 
