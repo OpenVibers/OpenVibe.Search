@@ -42,7 +42,8 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     // fails; the Network key and index consistency are optional and degrade it (see observability.js).
     const readiness = createSearchReadiness({ db, keys, config, engine, store, outbox, relay, purges, purger, saved, release: release.release });
     app.get('/api/ready', readiness.handler);
-    app.get('/release.json', release.handler);
+    // GET /release.json (ADR-016) and POST /release-metrics (open tabs' update reports into /metrics).
+    release.mount(app, { registry: metrics.registry });
 
     const searcher = createSearcher({ config, store, engine, now });
     app.use(documentsRouter({ store, auth, db, relay, purges }));

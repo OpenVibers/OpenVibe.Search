@@ -200,7 +200,7 @@ the `search.document.removed` event it records:
 | `search.document.write` | `PUT/DELETE /api/v1/documents/:owner/:type/:id`, `/api/v1/owners/:owner/...` including the removal feed (own owner only) |
 | `search.query.delegate` | the query and saved-search routes, acting for `X-OV-Subject` |
 
-Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.13.0);
+Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.32.0);
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
 `openvibe-contracts-check --service search`.
 

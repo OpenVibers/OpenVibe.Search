@@ -71,6 +71,14 @@ t('/metrics: 404 through a proxy; route templates and Search gauges direct', asy
     assert.ok(/\nsearch_outbox_pending \d+\n/.test(text));
 });
 
+t('/release.json: a registry.release-manifest@1 that names where tabs report updates', async () => {
+    const r = await request(svc.base, 'GET', '/release.json');
+    assert.strictEqual(r.status, 200, r.text);
+    assert.strictEqual(r.body.service, 'search');
+    assert.deepStrictEqual(require('openvibe-contracts').validate('registry.release-manifest@1', r.body).errors, []);
+    assert.strictEqual(r.body.metrics_url, '/release-metrics');
+});
+
 t('a full-text index out of step with the documents degrades /api/ready (still 200)', async () => {
     await svc.stop();
     svc = await boot();                              // fresh: the index check has no cached result
