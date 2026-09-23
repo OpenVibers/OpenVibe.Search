@@ -1,7 +1,11 @@
 'use strict';
-/** Express app: request context, the v1 API, the Events webhook, health/readiness. */
+/** Express app: request context, the v1 API, the Events webhook, health/readiness, metrics. */
+const path = require('path');
 const express = require('express');
 const { http } = require('openvibe-contracts');
+const { instrument } = require('openvibe-shared/metrics');
+const { createRelease } = require('openvibe-shared/release');
+const { createSearchReadiness, registerSearchGauges } = require('./observability');
 const { documentsRouter } = require('./api/documents');
 const { queryRouter } = require('./api/query');
 const { webhookRouter } = require('./api/webhook');
@@ -12,6 +16,11 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
     app.set('query parser', 'extended');
+    const release = createRelease({ service: 'search', root: path.join(__dirname, '..') });
+    // HTTP golden signals by route template, process metrics, release_info and the Search gauges;
+    // GET /metrics answers direct loopback callers only (Track O).
+    const metrics = instrument(app, { service: 'search', release: release.release });
+    registerSearchGauges(metrics.registry, { db, outbox });
     app.use(http.middleware());
     app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -27,20 +36,11 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
         res.json({ status: 'ok', service: 'openvibe-search', version: pkg.version });
     });
 
-    app.get('/api/ready', (_req, res) => {
-        let dbOk = false;
-        try { dbOk = db.prepare('SELECT 1 AS ok').get().ok === 1; } catch { dbOk = false; }
-        const checks = { db: dbOk, key: keys.loaded() };
-        const ready = Object.values(checks).every(Boolean);
-        res.status(ready ? 200 : 503).json({
-            status: ready ? 'ready' : 'not_ready',
-            checks,
-            engine: engine.name,
-            documents: dbOk ? store.counts() : null,
-            outbox: dbOk ? { pending: outbox.pending(), rejected: outbox.rejected(), relay: config.events.url ? (relay.running() ? 'running' : 'stopped') : 'off (EVENTS_URL unset)' } : null,
-            webhook: config.events.webhookSecrets.length ? 'on' : 'off (SEARCH_EVENTS_SECRET unset)',
-        });
-    });
+    // Readiness (openvibe-shared/ready): 503 only when the database (documents and full-text tables)
+    // fails; the Network key and index consistency are optional and degrade it (see observability.js).
+    const readiness = createSearchReadiness({ db, keys, config, engine, store, outbox, relay, release: release.release });
+    app.get('/api/ready', readiness.handler);
+    app.get('/release.json', release.handler);
 
     app.use(documentsRouter({ store, auth, db, relay }));
     app.use(queryRouter({ config, store, engine, auth }));
@@ -56,7 +56,7 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
             'DELETE /api/v1/documents/:owner/:type/:id?revision=           tombstone (owner)',
             'GET    /api/v1/owners/:owner/documents                        reconciliation (owner)',
             'POST   /internal/events                                       OpenVibe.Events delivery (signed)',
-            'GET    /api/health, /api/ready',
+            'GET    /api/health, /api/ready, /release.json',
             '',
             'Source: https://github.com/OpenVibers/OpenVibe.Search',
             '',
@@ -74,6 +74,7 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
         return http.sendProblem(res, 500, 'search.internal', { detail: 'internal error', ctx: req.ov });
     });
 
+    app.locals.metrics = metrics;
     return app;
 }
 

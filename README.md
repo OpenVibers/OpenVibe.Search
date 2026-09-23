@@ -33,9 +33,13 @@ env `/etc/openvibe/search.env`, unit [deploy/systemd/openvibe-search.service](de
 index `/var/lib/openvibe-search/search.db`, nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)
 (the public vhost exposes only the GET query API and health; owners and Events call `127.0.0.1:4710`).
 
-`GET /api/health` is liveness. `GET /api/ready` is 200 when the database answers and the Network
-signing key has loaded; it also reports document counts by exposure, the outbox backlog and
-whether the Events webhook is on.
+`GET /api/health` is liveness. `GET /api/ready` (openvibe-shared/ready) is 503 only when the
+database (the documents and both full-text tables) fails; a Network signing key that has not loaded
+(anonymous queries still answer) and a full-text index out of step with the documents table degrade
+it. It also reports document counts by exposure, the outbox backlog and whether the Events webhook
+is on. `GET /metrics` (openvibe-shared/metrics) answers direct loopback callers only: golden signals
+by route template, `search_documents{exposure}`, `search_documents_indexed{index}` and the outbox
+backlog.
 
 ## Query API
 
