@@ -69,7 +69,8 @@ function decodeCursor(s, hash) {
     let c;
     try { c = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8')); } catch { c = null; }
     if (!c || c.h !== hash || !Number.isInteger(c.i)) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-    if (c.k === 'r' && typeof c.r === 'number') return { rank: c.r, rid: c.i };
+    // n: the first page's reference time for freshness, so later pages rank on the same clock.
+    if (c.k === 'r' && typeof c.r === 'number') return { rank: c.r, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
     if (c.k === 't' && typeof c.t === 'string') return { sort_at: c.t, rid: c.i };
     throw new QueryError('search.bad_cursor', 'cursor is malformed');
 }
@@ -111,51 +112,31 @@ function canView(viewer, row, doc) {
     return false;
 }
 
-function queryRouter({ config, store, engine, auth }) {
-    const router = express.Router();
-
-    function withViewer(handler) {
-        return (req, res) => {
-            const ctx = req.ov;
-            let viewer;
-            try {
-                viewer = auth.viewer(req);
-            } catch (err) {
-                if (err instanceof AuthError) return http.sendProblem(res, err.status, err.code, { detail: err.message, ctx });
-                throw err;
-            }
-            // Never cached: a visibility change or deletion must leave results immediately, and a
-            // personalised answer must never reach a shared cache.
-            res.setHeader('Cache-Control', 'no-store');
-            res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
-            try {
-                return handler(req, res, viewer);
-            } catch (err) {
-                if (err instanceof QueryError) return http.sendProblem(res, 400, err.code, { detail: err.message, ctx });
-                throw err;
-            }
-        };
-    }
-
-    router.get('/api/v1/search', withViewer((req, res, viewer) => {
-        const q = one(req.query.q);
-        const text = q === undefined ? '' : String(q);
+/**
+ * One search as a viewer: the query API, saved-search runs and the HTML page all go through here.
+ *   run({ text, query, viewer, limit, cursor, facetKeys, now }) → { results, next_cursor, facets? }
+ * `query` is the query-string-shaped filter source (owner, type, lang, facet.<key>). Throws
+ * QueryError for a malformed request.
+ */
+function createSearcher({ config, store, engine, now: clock = () => Date.now() }) {
+    function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock() }) {
         if (text.length > 500) throw new QueryError('search.bad_query', 'q is longer than 500 characters');
-        const filters = parseFilters(req.query, config);
-        const limit = Math.min(Math.max(parseInt(one(req.query.limit), 10) || config.query.defaultLimit, 1), config.query.maxLimit);
-        const facetKeys = String(one(req.query.facets) || '').split(',').map(s => s.trim()).filter(Boolean);
+        filters = filters || parseFilters(query, config);
+        limit = Math.min(Math.max(parseInt(limit, 10) || config.query.defaultLimit, 1), config.query.maxLimit);
         if (facetKeys.length > 5 || facetKeys.some(k => !FACET_KEY_RE.test(k))) throw new QueryError('search.bad_query', 'facets: at most 5 well-formed keys');
 
         const match = text.trim() ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
         const hash = queryHash([match, filters]);
-        const after = decodeCursor(one(req.query.cursor), hash);
+        const after = decodeCursor(cursor, hash);
         if (text.trim() && !match) {
-            return res.json({ results: [], next_cursor: null, ...(facetKeys.length ? { facets: Object.fromEntries(facetKeys.map(k => [k, []])) } : {}) });
+            return { results: [], next_cursor: null, ...(facetKeys.length ? { facets: Object.fromEntries(facetKeys.map(k => [k, []])) } : {}) };
         }
         let page;
+        let refNow = now;
         if (match) {
             if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-            page = engine.search({ match, filters, viewer, limit, after });
+            if (after && after.now != null) refNow = after.now;
+            page = engine.search({ match, filters, viewer, limit, after, now: refNow });
         } else {
             if (after && after.sort_at === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
             page = engine.browse({ filters, viewer, limit, after });
@@ -168,14 +149,61 @@ function queryRouter({ config, store, engine, auth }) {
             results.push(projection(found.doc, found.row, match ? h.snip : undefined));
         }
         const next = page.next
-            ? encodeCursor(match ? { k: 'r', r: page.next.rank, i: page.next.rid, h: hash } : { k: 't', t: page.next.sort_at, i: page.next.rid, h: hash })
+            ? encodeCursor(match ? { k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash } : { k: 't', t: page.next.sort_at, i: page.next.rid, h: hash })
             : null;
         const body = { results, next_cursor: next };
         if (facetKeys.length) body.facets = engine.facetCounts({ match, filters, viewer, keys: facetKeys });
-        res.json(body);
+        return body;
+    }
+
+    return {
+        run,
+        parseFilters: (query) => parseFilters(query, config),
+        hasWords: (text) => toMatch(text, { maxTerms: config.query.maxTerms }) !== null,
+    };
+}
+
+/** Wraps a handler: resolves the viewer (AuthError → problem), no-store, QueryError → 400. */
+function withViewer(auth, handler) {
+    return (req, res, next) => {
+        const ctx = req.ov;
+        let viewer;
+        try {
+            viewer = auth.viewer(req);
+        } catch (err) {
+            if (err instanceof AuthError) return http.sendProblem(res, err.status, err.code, { detail: err.message, ctx });
+            return next(err);
+        }
+        // Never cached: a visibility change or deletion must leave results immediately, and a
+        // personalised answer must never reach a shared cache.
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
+        try {
+            return handler(req, res, viewer);
+        } catch (err) {
+            if (err instanceof QueryError) return http.sendProblem(res, 400, err.code, { detail: err.message, ctx });
+            return next(err);
+        }
+    };
+}
+
+function queryRouter({ config, store, engine, auth, searcher = createSearcher({ config, store, engine }) }) {
+    const router = express.Router();
+    const guarded = (h) => withViewer(auth, h);
+
+    router.get('/api/v1/search', guarded((req, res, viewer) => {
+        const q = one(req.query.q);
+        res.json(searcher.run({
+            text: q === undefined ? '' : String(q),
+            query: req.query,
+            viewer,
+            limit: one(req.query.limit),
+            cursor: one(req.query.cursor),
+            facetKeys: String(one(req.query.facets) || '').split(',').map(s => s.trim()).filter(Boolean),
+        }));
     }));
 
-    router.get('/api/v1/suggest', withViewer((req, res, viewer) => {
+    router.get('/api/v1/suggest', guarded((req, res, viewer) => {
         const text = String(one(req.query.q) || '');
         if (text.length > 100) throw new QueryError('search.bad_query', 'q is longer than 100 characters');
         const filters = parseFilters(req.query, config);
@@ -192,7 +220,7 @@ function queryRouter({ config, store, engine, auth }) {
         res.json({ suggestions });
     }));
 
-    router.get('/api/v1/documents/:owner/:type/:id', withViewer((req, res, viewer) => {
+    router.get('/api/v1/documents/:owner/:type/:id', guarded((req, res, viewer) => {
         const { owner, type, id } = req.params;
         if (!OWNER_RE.test(owner) || !TYPE_RE.test(type) || !ID_RE.test(id)) throw new QueryError('search.bad_identity', 'owner, type or id is malformed');
         const found = store.get(owner, type, id);
@@ -205,4 +233,4 @@ function queryRouter({ config, store, engine, auth }) {
     return router;
 }
 
-module.exports = { queryRouter, canView, projection, toMatch };
+module.exports = { queryRouter, createSearcher, withViewer, parseFilters, QueryError, canView, projection, toMatch, one };

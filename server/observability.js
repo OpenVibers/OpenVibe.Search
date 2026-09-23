@@ -34,7 +34,7 @@ function readers(db) {
     };
 }
 
-function createSearchReadiness({ db, keys, config, engine, store, outbox, relay, release = null }) {
+function createSearchReadiness({ db, keys, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, release = null }) {
     const read = readers(db);
     return createReadiness({
         service: 'search',
@@ -70,13 +70,20 @@ function createSearchReadiness({ db, keys, config, engine, store, outbox, relay,
                 documents: dbOk ? store.counts() : null,
                 outbox: dbOk ? { pending: outbox.pending(), rejected: outbox.rejected(), relay: config.events.url ? (relay.running() ? 'running' : 'stopped') : 'off (EVENTS_URL unset)' } : null,
                 webhook: config.events.webhookSecrets.length ? 'on' : 'off (SEARCH_EVENTS_SECRET unset)',
+                purge: dbOk && purges ? {
+                    cdn: purges.cdnOn() ? (purger && purger.running() ? 'cloudflare' : 'cloudflare (stopped)') : 'off (CLOUDFLARE_PURGE_TOKEN unset)',
+                    zones: config.purge.zones.length,
+                    ...purges.cdnCounts(),
+                } : null,
+                saved_searches: dbOk && saved ? saved.total() : null,
+                freshness: config.freshness,
             };
         },
     });
 }
 
 /** Search gauges on the openvibe-shared/metrics registry. */
-function registerSearchGauges(registry, { db, outbox }) {
+function registerSearchGauges(registry, { db, outbox, purges = null }) {
     const read = readers(db);
     registry.gauge({
         name: 'search_documents', help: 'Documents held, by exposure (public_listed and restricted are searchable; tombstones and drafts are none)', labelNames: ['exposure'],
@@ -88,6 +95,12 @@ function registerSearchGauges(registry, { db, outbox }) {
     });
     registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: () => outbox.pending() });
     registry.gauge({ name: 'search_outbox_rejected', help: 'Events OpenVibe.Events refused for good', collect: () => outbox.rejected() });
+    if (purges) {
+        registry.gauge({
+            name: 'search_cdn_purges', help: 'Cloudflare cache purges of removed documents, by state', labelNames: ['state'],
+            collect: () => Object.entries(purges.cdnCounts()).map(([state, value]) => ({ labels: { state }, value })),
+        });
+    }
 }
 
 module.exports = { createSearchReadiness, registerSearchGauges };

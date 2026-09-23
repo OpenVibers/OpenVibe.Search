@@ -7,11 +7,13 @@ const { instrument } = require('openvibe-shared/metrics');
 const { createRelease } = require('openvibe-shared/release');
 const { createSearchReadiness, registerSearchGauges } = require('./observability');
 const { documentsRouter } = require('./api/documents');
-const { queryRouter } = require('./api/query');
+const { queryRouter, createSearcher } = require('./api/query');
+const { savedRouter } = require('./api/saved');
+const { pageRouter } = require('./web/page');
 const { webhookRouter } = require('./api/webhook');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, keys, outbox, relay, log = console, now }) {
+function createApp({ config, db, store, engine, auth, keys, outbox, relay, purges, purger, saved, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -20,7 +22,7 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
     // HTTP golden signals by route template, process metrics, release_info and the Search gauges;
     // GET /metrics answers direct loopback callers only (Track O).
     const metrics = instrument(app, { service: 'search', release: release.release });
-    registerSearchGauges(metrics.registry, { db, outbox });
+    registerSearchGauges(metrics.registry, { db, outbox, purges });
     app.use(http.middleware());
     app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -38,30 +40,16 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, log =
 
     // Readiness (openvibe-shared/ready): 503 only when the database (documents and full-text tables)
     // fails; the Network key and index consistency are optional and degrade it (see observability.js).
-    const readiness = createSearchReadiness({ db, keys, config, engine, store, outbox, relay, release: release.release });
+    const readiness = createSearchReadiness({ db, keys, config, engine, store, outbox, relay, purges, purger, saved, release: release.release });
     app.get('/api/ready', readiness.handler);
     app.get('/release.json', release.handler);
 
-    app.use(documentsRouter({ store, auth, db, relay }));
-    app.use(queryRouter({ config, store, engine, auth }));
-
-    app.get('/', (_req, res) => {
-        res.type('text/plain').send([
-            'OpenVibe.Search: permission-aware search over documents the network\'s services index.',
-            '',
-            'GET    /api/v1/search?q=&owner=&type=&facet.<key>=&cursor=   query (anonymous: public only)',
-            'GET    /api/v1/suggest?q=                                     title suggestions',
-            'GET    /api/v1/documents/:owner/:type/:id                     one document the caller may see',
-            'PUT    /api/v1/documents/:owner/:type/:id                     index (owner, search.document.write)',
-            'DELETE /api/v1/documents/:owner/:type/:id?revision=           tombstone (owner)',
-            'GET    /api/v1/owners/:owner/documents                        reconciliation (owner)',
-            'POST   /internal/events                                       OpenVibe.Events delivery (signed)',
-            'GET    /api/health, /api/ready, /release.json',
-            '',
-            'Source: https://github.com/OpenVibers/OpenVibe.Search',
-            '',
-        ].join('\n'));
-    });
+    const searcher = createSearcher({ config, store, engine, now });
+    app.use(documentsRouter({ store, auth, db, relay, purges }));
+    app.use(queryRouter({ config, store, engine, auth, searcher }));
+    app.use(savedRouter({ config, saved, searcher, auth }));
+    // GET / (HTML search page for browsers, the text route index otherwise) and /robots.txt.
+    app.use(pageRouter({ searcher, auth }));
 
     app.use((req, res) => http.sendProblem(res, 404, 'search.not_found', { detail: `no route ${req.method} ${req.path}`, ctx: req.ov }));
 

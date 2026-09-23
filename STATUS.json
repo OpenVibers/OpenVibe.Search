@@ -6,7 +6,7 @@
   "plan": "OpenVibe End-to-End Realignment & Implementation Plan, revision 3 (20 Sep 2026)",
   "runtime": "node 22, express, better-sqlite3 (FTS5)",
   "port": 4710,
-  "domain": "search.openvibe.network (no vhost installed: the name falls through to the admin.openvibe.network placeholder; the service is reachable on the host only)",
+  "domain": "search.openvibe.network (vhost in deploy/nginx, not installed: until it is, the name falls through to the admin.openvibe.network placeholder; README \"Public host\")",
   "contracts": "openvibe-contracts v0.13.0",
   "capabilities": ["search.document.write", "search.query.delegate"],
   "capabilitiesRegistered": true,
@@ -15,5 +15,6 @@
   "deployed": true,
   "deployment": "Deployed internally, not launched: /opt/openvibe.search at 5a7e59b, unit openvibe-search, 127.0.0.1:4710 only, principal search, Events subscription *.index_document.*, accepted event owners sources, wiki, blog, news, reviews, trade, deals, coupons. Production index: 10 documents, all tombstones (wiki), 0 public. Restore drill passed 2026-09-23.",
   "indexedProducers": ["wiki (tombstones only so far)"],
+  "features": ["ACL-filtered FTS5 query API", "facets", "suggestions", "freshness-weighted ranking", "saved searches (notifications wait for Network notifications)", "server-rendered search page", "owner removal feed", "Cloudflare purge queue (inert until CLOUDFLARE_PURGE_TOKEN is set)"],
   "updated": "2026-09-23"
 }

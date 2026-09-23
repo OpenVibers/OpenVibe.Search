@@ -13,14 +13,19 @@ const { createEngine } = require('./engine/fts5');
 const { createStore } = require('./store');
 const { createOutbox, createRelay } = require('./events/outbox');
 const { createKeyStore, createAuth } = require('./auth');
+const { createPurgeQueue, createPurger } = require('./purge');
+const { createSavedSearches } = require('./saved');
 const { createApp } = require('./app');
 
 async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, log = console, listen = true } = {}) {
     config = config || load();
     const db = openDb(config.dbPath);
-    const engine = createEngine(db);
+    const engine = createEngine(db, { freshness: config.freshness });
     const outbox = createOutbox(db, { source: config.serviceId, now });
-    const store = createStore({ db, engine, outbox, now });
+    const purges = createPurgeQueue(db, { config: config.purge, now });
+    const purger = createPurger({ db, config: config.purge, fetchImpl, log, now });
+    const saved = createSavedSearches(db, { maxPerSubject: config.savedSearches.maxPerSubject, now });
+    const store = createStore({ db, engine, outbox, purges, now });
     const relay = createRelay({
         db, outbox, eventsUrl: config.events.url, intervalMs: config.events.relayIntervalMs, fetchImpl, log, now,
         tokenClient,
@@ -28,10 +33,11 @@ async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fe
     });
     const keys = createKeyStore({ urls: [config.networkInternalUrl, config.networkUrl], pem: config.networkPublicKey, fetchImpl, log });
     const auth = createAuth({ config, keys });
-    const app = createApp({ config, db, store, engine, auth, keys, outbox, relay, log, now });
+    const app = createApp({ config, db, store, engine, auth, keys, outbox, relay, purges, purger, saved, log, now });
 
     const keyLoaded = keys.start().catch(() => null);
     relay.start();
+    purger.start();
     const pruneTimer = setInterval(() => { try { outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
 
@@ -48,6 +54,7 @@ async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fe
         clearInterval(pruneTimer);
         keys.stop();
         await relay.stop();
+        await purger.stop();
         if (server) {
             server.closeAllConnections?.();
             await new Promise(resolve => server.close(() => resolve()));
@@ -55,7 +62,7 @@ async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fe
         db.close();
     }
 
-    return { config, db, engine, store, outbox, relay, keys, keyLoaded, auth, app, server, close };
+    return { config, db, engine, store, outbox, relay, purges, purger, saved, keys, keyLoaded, auth, app, server, close };
 }
 
 if (require.main === module) {

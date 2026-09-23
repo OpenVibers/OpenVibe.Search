@@ -9,6 +9,9 @@
  *                                                        reconciliation: (type, id, revision, deleted, hash)
  *   GET    /api/v1/owners/:owner/documents/:type/:id    the stored document + effective indexability
  *   GET    /api/v1/owners/:owner/rejections?after=      index-document events Search refused
+ *   GET    /api/v1/owners/:owner/removals?after=&limit= documents that left results or public
+ *                                                        delivery (server/purge.js): the owner drops
+ *                                                        them from its caches and sitemaps
  */
 const express = require('express');
 const { http } = require('openvibe-contracts');
@@ -39,7 +42,7 @@ function outcomeResponse(res, ctx, r) {
     return res.json(r);
 }
 
-function documentsRouter({ store, auth, db, relay }) {
+function documentsRouter({ store, auth, db, relay, purges }) {
     const router = express.Router();
     const guard = auth.requireCap(CAPS.write);
 
@@ -123,6 +126,13 @@ function documentsRouter({ store, auth, db, relay }) {
             })),
             next_after: rows.length ? rows[rows.length - 1].seq : null,
         });
+    });
+
+    router.get('/api/v1/owners/:owner/removals', guard, (req, res) => {
+        if (!ownerCheck(req, res)) return;
+        const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
+        res.json({ owner: req.params.owner, ...purges.ownerFeed(req.params.owner, { after, limit }) });
     });
 
     return router;

@@ -15,7 +15,7 @@ const { normalize, effectiveIndexability, exposureOf, facetPairs, EXPOSURE } = r
 
 const EXPOSURE_NAME = Object.fromEntries(Object.entries(EXPOSURE).map(([k, v]) => [v, k]));
 
-function createStore({ db, engine, outbox, now = () => Date.now() }) {
+function createStore({ db, engine, outbox, purges = null, now = () => Date.now() }) {
     const st = {
         get: db.prepare('SELECT * FROM documents WHERE owner = ? AND type = ? AND id = ?'),
         byRid: db.prepare('SELECT * FROM documents WHERE rid = ?'),
@@ -89,19 +89,17 @@ function createStore({ db, engine, outbox, now = () => Date.now() }) {
         const subject = { type: 'document', id: `${doc.owner}/${doc.type}/${doc.id}`, revision: doc.revision };
         const wasPublic = prevExposure >= EXPOSURE.public_unlisted;
         if (exposure < prevExposure) {
-            outbox.enqueue({
-                event_type: 'search.document.removed',
-                subject,
-                trace_id: traceId,
-                payload: {
-                    owner: doc.owner, type: doc.type, id: doc.id, revision: doc.revision,
-                    reason: removalReason(prevDoc, doc),
-                    previous_exposure: EXPOSURE_NAME[prevExposure],
-                    exposure: EXPOSURE_NAME[exposure],
-                    // Only a URL that was public already: caches and sitemaps purge it.
-                    canonical_url: wasPublic ? prevRow.canonical_url : null,
-                },
-            });
+            const payload = {
+                owner: doc.owner, type: doc.type, id: doc.id, revision: doc.revision,
+                reason: removalReason(prevDoc, doc),
+                previous_exposure: EXPOSURE_NAME[prevExposure],
+                exposure: EXPOSURE_NAME[exposure],
+                // Only a URL that was public already: caches and sitemaps purge it.
+                canonical_url: wasPublic ? prevRow.canonical_url : null,
+            };
+            const env = outbox.enqueue({ event_type: 'search.document.removed', subject, trace_id: traceId, payload });
+            // Search's own consumer: the owners' removal feed and the CDN purge queue (purge.js).
+            if (purges) purges.record(env.event_id, payload);
         }
         if (!doc.deleted && exposure > EXPOSURE.none) {
             outbox.enqueue({

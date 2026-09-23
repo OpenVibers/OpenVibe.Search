@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const outbox = require('./events/outbox');
+const purge = require('./purge');
+const saved = require('./saved');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS documents (
@@ -89,6 +91,8 @@ function openDb(dbPath) {
     db.pragma('busy_timeout = 5000');
     db.exec(SCHEMA);
     outbox.ensureSchema(db);
+    purge.ensureSchema(db);
+    saved.ensureSchema(db);
     return db;
 }
 

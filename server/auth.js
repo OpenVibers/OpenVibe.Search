@@ -249,7 +249,10 @@ function createAuth({ config, keys }) {
         }
         const fromCookie = cookie(req, 'ov_token');
         const user = fromCookie ? verifyUser(fromCookie) : null;
-        return user ? userViewer(user) : ANONYMOUS;
+        if (!user) return ANONYMOUS;
+        const v = userViewer(user);
+        // `via` lets state-changing routes demand a same-origin request for ambient credentials.
+        return v.kind === 'user' ? { ...v, via: 'cookie' } : v;
     }
 
     return { verifyService, verifyUser, requireCap, viewer };

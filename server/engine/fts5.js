@@ -23,7 +23,29 @@ const WEIGHTS = '10.0, 4.0, 1.0';   // title, summary, body
 const MARK_OPEN = '\u0001';
 const MARK_CLOSE = '\u0002';
 
-function createEngine(db) {
+const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Freshness multiplier for a document dated `iso` at reference time `nowMs`:
+ *
+ *   1 + weight × 2^(−age_days / halfLifeDays)
+ *
+ * With the defaults (weight 1, half-life 30 days) a document published today counts ×2.0, one
+ * 30 days old ×1.5, 60 days ×1.25, 90 days ×1.125, a year old ×1.0002: relevance still decides,
+ * and between comparably relevant documents the newer one ranks first. A future date counts as
+ * today; no date (or an unparsable one) counts ×1. Weight 0 turns the boost off.
+ */
+function freshnessBoost(iso, nowMs, halfLifeDays, weight) {
+    if (!weight || !iso) return 1;
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return 1;
+    const ageDays = Math.max(0, (nowMs - t) / DAY_MS);
+    return 1 + weight * Math.pow(2, -ageDays / halfLifeDays);
+}
+
+function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) {
+    // bm25() is negative (lower = more relevant), so multiplying by a boost ≥ 1 ranks newer first.
+    db.function('ov_freshness', { deterministic: true }, (iso, nowMs, halfLifeDays, weight) => freshnessBoost(iso, nowMs, halfLifeDays, weight));
     db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS fts_public USING fts5(title, summary, body, ${TOKENIZE});
         CREATE VIRTUAL TABLE IF NOT EXISTS fts_restricted USING fts5(title, summary, body, ${TOKENIZE});
@@ -81,17 +103,25 @@ function createEngine(db) {
         return parts.length ? ` AND ${parts.join(' AND ')}` : '';
     }
 
-    /** The visible, matching set as (rid, rank, snip) rows. match = FTS5 expression. */
-    function matchedSet({ match, filters, viewer, snippets = true }, params) {
+    /**
+     * The visible, matching set as (rid, rank, snip) rows. match = FTS5 expression. rank is bm25
+     * times the freshness boost at reference time `now` (ms), so pages of one query (which carry
+     * their first page's `now` in the cursor) rank against the same clock.
+     */
+    function matchedSet({ match, filters, viewer, snippets = true, now = Date.now() }, params) {
         params.match = match;
+        params.r_now = now;
+        params.r_half = freshness.halfLifeDays;
+        params.r_weight = freshness.weight;
         const where = filterClause(filters, params);
         const snip = (t) => (snippets ? `snippet(${t}, -1, char(1), char(2), '…', 16)` : 'NULL');
-        const branches = [`SELECT d.rid AS rid, bm25(fts_public, ${WEIGHTS}) AS rank, ${snip('fts_public')} AS snip
+        const rank = (t) => `bm25(${t}, ${WEIGHTS}) * ov_freshness(COALESCE(d.published_at, d.updated_at), @r_now, @r_half, @r_weight)`;
+        const branches = [`SELECT d.rid AS rid, ${rank('fts_public')} AS rank, ${snip('fts_public')} AS snip
             FROM fts_public JOIN documents d ON d.rid = fts_public.rowid
             WHERE fts_public MATCH @match AND d.exposure = ${EXPOSURE.public_listed} AND d.deleted = 0${where}`];
         const acl = aclClause(viewer, params);
         if (acl) {
-            branches.push(`SELECT d.rid AS rid, bm25(fts_restricted, ${WEIGHTS}) AS rank, ${snip('fts_restricted')} AS snip
+            branches.push(`SELECT d.rid AS rid, ${rank('fts_restricted')} AS rank, ${snip('fts_restricted')} AS snip
                 FROM fts_restricted JOIN documents d ON d.rid = fts_restricted.rowid
                 WHERE fts_restricted MATCH @match AND d.exposure = ${EXPOSURE.restricted} AND d.deleted = 0${where} AND ${acl}`);
         }
@@ -111,9 +141,9 @@ function createEngine(db) {
     // ── Queries ──────────────────────────────────────────────
 
     /** Ranked full-text search. after = { rank, rid } keyset cursor. */
-    function search({ match, filters = {}, viewer, limit, after }) {
+    function search({ match, filters = {}, viewer, limit, after, now = Date.now() }) {
         const params = { limit: limit + 1 };
-        let sql = `SELECT rid, rank, snip FROM (${matchedSet({ match, filters, viewer }, params)})`;
+        let sql = `SELECT rid, rank, snip FROM (${matchedSet({ match, filters, viewer, now }, params)})`;
         if (after) {
             sql += ' WHERE (rank > @c_rank OR (rank = @c_rank AND rid > @c_rid))';
             params.c_rank = after.rank;
@@ -175,7 +205,7 @@ function createEngine(db) {
         };
     }
 
-    return { name: 'sqlite-fts5', put, remove, search, browse, facetCounts, suggest, counts };
+    return { name: 'sqlite-fts5', put, remove, search, browse, facetCounts, suggest, counts, freshness };
 }
 
 // ── Query text → FTS5 expression ─────────────────────────────
@@ -202,4 +232,4 @@ function snippetHtml(snip) {
     return esc.split(MARK_OPEN).join('<mark>').split(MARK_CLOSE).join('</mark>');
 }
 
-module.exports = { createEngine, toMatch, snippetHtml };
+module.exports = { createEngine, toMatch, snippetHtml, freshnessBoost };
