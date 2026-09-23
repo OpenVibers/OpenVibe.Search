@@ -14,6 +14,4 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
-      # Add once the search service manifest and the search.* capabilities ship in
-      # openvibe-contracts (proposals in docs/capabilities-proposal/ and docs/service-manifest-proposal.json):
-      # - run: npx openvibe-contracts-check --service search --src server
+      - run: npx openvibe-contracts-check --service search --src server
