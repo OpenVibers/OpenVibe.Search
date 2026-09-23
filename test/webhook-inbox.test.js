@@ -21,6 +21,21 @@ t('an unsigned or wrongly signed delivery is refused and changes nothing', async
     assert.strictEqual(receipts(), 0);
 });
 
+t('signature v2 is required: a v1-only delivery and a stale v2 timestamp are refused', async () => {
+    const e = indexEvent(doc({ title: 'Replayed omiword' }));
+    const v1 = await deliver(svc.base, e, { v1Only: true });
+    assert.strictEqual(v1.status, 401, 'v1 only (v2 stripped): refused');
+    const stale = await deliver(svc.base, e, { now: Date.now() - 301000 });
+    assert.strictEqual(stale.status, 401, 'stale v2 (outside the 300 s window): refused');
+    const future = await deliver(svc.base, e, { now: Date.now() + 301000 });
+    assert.strictEqual(future.status, 401, 'v2 from too far in the future: refused');
+    assert.strictEqual((await search('omiword')).length, 0);
+    assert.strictEqual(receipts(), 0);
+    const ok = await deliver(svc.base, e);
+    assert.strictEqual(ok.status, 200, 'a fresh v2 delivery of the same event is accepted');
+    assert.strictEqual((await search('omiword')).length, 1);
+});
+
 t('a delivered upsert is indexed; the same event again is a no-op', async () => {
     const d = doc({ title: 'Delivered nuword' });
     const e = indexEvent(d);

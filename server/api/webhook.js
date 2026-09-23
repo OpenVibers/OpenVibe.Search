@@ -28,6 +28,41 @@ function sign(raw, secret) {
     return 'sha256=' + crypto.createHmac('sha256', String(secret)).update(raw).digest('hex');
 }
 
+/** X-OpenVibe-Signature-V2 value: t=<unix seconds>,v2=<hex HMAC-SHA256 of "<t>.<raw body>">. */
+function signV2(raw, secret, ts = Math.floor(Date.now() / 1000)) {
+    return `t=${ts},v2=` + crypto.createHmac('sha256', String(secret)).update(`${ts}.`).update(raw).digest('hex');
+}
+
+const V2_TOLERANCE_SEC = 300;
+
+/**
+ * Constant-time check of X-OpenVibe-Signature-V2 against the raw body with any of `secrets`, and
+ * of its timestamp (±300 s of now; X-OpenVibe-Timestamp, when sent, must be the same t). Same
+ * rules as openvibe-sdk 0.4.0 verifyDeliveryV2(). v1 is never consulted.
+ */
+function verifySignatureV2(raw, headerV2, headerTs, secrets, now = Date.now()) {
+    if (!raw || typeof headerV2 !== 'string') return false;
+    let t = null;
+    const given = [];
+    for (const part of headerV2.split(',')) {
+        const i = part.indexOf('=');
+        if (i < 0) return false;
+        const k = part.slice(0, i).trim();
+        const v = part.slice(i + 1).trim();
+        if (k === 't') {
+            if (t !== null || !/^\d{1,12}$/.test(v)) return false;
+            t = Number(v);
+        } else if (k === 'v2') given.push(Buffer.from(v));
+    }
+    if (t === null || !given.length) return false;
+    if (headerTs !== undefined && String(headerTs).trim() !== String(t)) return false;
+    if (Math.abs(now / 1000 - t) > V2_TOLERANCE_SEC) return false;
+    return secrets.some((s) => {
+        const expected = Buffer.from(signV2(raw, s, t).split(',v2=')[1]);
+        return given.some((g) => g.length === expected.length && crypto.timingSafeEqual(g, expected));
+    });
+}
+
 function verifySignature(raw, header, secrets) {
     if (!raw || typeof header !== 'string') return false;
     const given = Buffer.from(header.trim());
@@ -95,8 +130,9 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
             const secrets = config.events.webhookSecrets;
             if (!secrets.length) return http.sendProblem(res, 503, 'search.webhook_disabled', { detail: 'SEARCH_EVENTS_SECRET is not set', ctx });
             const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-            if (!verifySignature(raw, req.get('x-openvibe-signature'), secrets)) {
-                return http.sendProblem(res, 401, 'search.bad_signature', { detail: 'X-OpenVibe-Signature does not verify', ctx });
+            // v2 only: signature over "<t>.<raw body>" and t within ±300 s (a replayed or v1-only delivery fails).
+            if (!verifySignatureV2(raw, req.get('x-openvibe-signature-v2'), req.get('x-openvibe-timestamp'), secrets)) {
+                return http.sendProblem(res, 401, 'search.bad_signature', { detail: 'X-OpenVibe-Signature-V2 does not verify or is outside the replay window', ctx });
             }
             let body;
             try { body = JSON.parse(raw.toString('utf8')); } catch { body = null; }
@@ -131,4 +167,4 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
     return router;
 }
 
-module.exports = { webhookRouter, createInbox, documentFromEvent, verifySignature, sign, CONSUMER };
+module.exports = { webhookRouter, createInbox, documentFromEvent, verifySignature, sign, verifySignatureV2, signV2, CONSUMER };

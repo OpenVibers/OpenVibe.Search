@@ -11,7 +11,7 @@ const path = require('path');
 const { serviceAuth, ids } = require('openvibe-contracts');
 const { load } = require('../server/config');
 const { start } = require('../server/index');
-const { sign } = require('../server/api/webhook');
+const { sign, signV2 } = require('../server/api/webhook');
 
 const ISSUER = 'https://openvibe.network';
 const WEBHOOK_SECRET = 'whsec_test_' + 'x'.repeat(40);
@@ -113,13 +113,18 @@ function indexEvent(document, { action = 'upserted', source = document.owner, ev
     };
 }
 
-/** POST a signed delivery to /internal/events. */
-async function deliver(base, event, { secret = WEBHOOK_SECRET, seq = 1, badSignature = false } = {}) {
+/**
+ * POST a signed delivery to /internal/events with the three signature headers Events sends.
+ * `v1Only` drops the v2 headers; `now` (ms) backdates the v2 timestamp.
+ */
+async function deliver(base, event, { secret = WEBHOOK_SECRET, seq = 1, badSignature = false, v1Only = false, now = Date.now() } = {}) {
     const raw = JSON.stringify({ event, seq });
-    const signature = badSignature ? sign(raw, 'wrong-secret-' + 'y'.repeat(32)) : sign(raw, secret);
+    const key = badSignature ? 'wrong-secret-' + 'y'.repeat(32) : secret;
+    const ts = Math.floor(now / 1000);
+    const v2 = v1Only ? {} : { 'X-OpenVibe-Timestamp': String(ts), 'X-OpenVibe-Signature-V2': signV2(raw, key, ts) };
     return request(base, 'POST', '/internal/events', {
         raw,
-        headers: { 'Content-Type': 'application/json', 'X-OpenVibe-Signature': signature, 'X-OpenVibe-Event-Id': event.event_id },
+        headers: { 'Content-Type': 'application/json', 'X-OpenVibe-Signature': sign(raw, key), ...v2, 'X-OpenVibe-Event-Id': event.event_id },
     });
 }
 
