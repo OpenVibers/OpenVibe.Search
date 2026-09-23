@@ -133,6 +133,31 @@ t('a failure while applying leaves no receipt, so the redelivery applies exactly
     assert.strictEqual(svc.outbox.all().filter(x => x.payload.id === d.id).length, 1);
 });
 
+t('OpenVibe.Sources item documents (the first real producer) index for staff only', async () => {
+    // exactly the shape OpenVibe.Sources server/items.js indexDocument() emits
+    const item = {
+        owner: 'sources', type: 'item', id: 'itm_01K5ZQ8T3B9V2W7X6Y5Z4A3B2C', revision: 1,
+        visibility: 'members', acl: { groups: ['role:admin', 'role:global_mod'] },
+        title: 'Telescope sees upsilonword first light', summary: 'The new telescope saw first light.', body: '',
+        facets: { category: 'news', source: 'nasa-news-releases', kind: 'article' },
+        authorship: 'imported',
+        provenance: [{ service: 'sources', type: 'item', id: 'itm_01K5ZQ8T3B9V2W7X6Y5Z4A3B2C', revision: 1, url: 'https://www.nasa.gov/x', retrieved_at: '2026-09-22T12:00:00.000Z' }],
+        publication_state: 'published', published_at: '2026-09-21T14:30:00.000Z', updated_at: null,
+        indexability: { decision: 'noindex', reasons: ['third_party_content'] },
+        canonical_url: 'https://www.nasa.gov/x',
+    };
+    const r = await deliver(svc.base, indexEvent(item));
+    assert.strictEqual(r.body.outcome, 'applied');
+    assert.strictEqual((await search('upsilonword')).length, 0, 'anonymous: nothing');
+    const { userToken } = require('./helpers');
+    const asAdmin = await request(svc.base, 'GET', '/api/v1/search?q=upsilonword', { token: userToken({ role: 'admin' }) });
+    assert.deepStrictEqual(asAdmin.body.results.map(x => [x.owner, x.type, x.indexable]), [['sources', 'item', false]]);
+    const asUser = await request(svc.base, 'GET', '/api/v1/search?q=upsilonword', { token: userToken({ role: 'user' }) });
+    assert.strictEqual(asUser.body.results.length, 0);
+    assert.strictEqual((await deliver(svc.base, indexEvent({ ...item, revision: 2 }, { action: 'deleted' }))).body.outcome, 'applied');
+    assert.strictEqual((await request(svc.base, 'GET', '/api/v1/search?q=upsilonword', { token: userToken({ role: 'admin' }) })).body.results.length, 0);
+});
+
 t('without SEARCH_EVENTS_SECRET the webhook is off', async () => {
     const off = await boot({ env: { SEARCH_EVENTS_SECRET: '' } });
     try {
