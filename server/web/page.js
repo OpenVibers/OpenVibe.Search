@@ -14,7 +14,27 @@ const express = require('express');
 const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
 
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+// The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; its init is
+// /frame-init.js (same origin, no inline script), reading the JSON config in #ov-frame-config.
+const NETWORK = 'https://openvibe.network';
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK}; connect-src 'self' ${NETWORK}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const frame = require('openvibe-shared/frame');
+const FRAME_INIT = `(function () {
+  var tries = 0;
+  function boot() {
+    if (!window.OpenVibeNavbar || !window.OpenVibeFooter) { if (++tries < 60) setTimeout(boot, 100); return; }
+    var el = document.getElementById('ov-frame-config'); var cfg = {};
+    try { cfg = JSON.parse(el ? el.textContent : '{}'); } catch (e) { /* */ }
+    try { if (cfg.navbar) OpenVibeNavbar.init(cfg.navbar); } catch (e) { /* the Frame is optional */ }
+    try { if (cfg.footer) OpenVibeFooter.init(cfg.footer); } catch (e) { /* */ }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+`;
+const FRAME_CONFIG = {
+    navbar: { service: 'search', apiBase: NETWORK, links: [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }] },
+    footer: { service: 'search', variant: 'compact', mount: '#ov-footer', brandName: 'OpenVibe.Search', updates: '/updates' },
+};
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -59,6 +79,10 @@ function layout({ title, q, owner, type, body, noindex }) {
 <title>${esc(title)}</title>
 ${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
 <meta name="color-scheme" content="light dark">
+<script src="${NETWORK}/shared/theme-loader.js" defer></script>
+<script src="${NETWORK}/shared/navbar.js" defer></script>
+<script src="${NETWORK}/shared/footer.js" defer></script>
+<script src="/frame-init.js" defer></script>
 <style>
 :root { --bg: #fff; --fg: #1a1a1a; --muted: #5c5c66; --line: #dcdce3; --accent: #2456d6; --mark: #fff2a8; }
 @media (prefers-color-scheme: dark) { :root { --bg: #111317; --fg: #e8e8ec; --muted: #a0a0ab; --line: #2c2f36; --accent: #7aa2ff; --mark: #5a4b00; } }
@@ -79,11 +103,13 @@ li a.t:hover { text-decoration: underline; }
 mark { background: var(--mark); color: inherit; }
 .empty, .note { color: var(--muted); }
 .more { display: inline-block; margin-top: 16px; color: var(--accent); }
-footer { margin-top: 40px; color: var(--muted); font-size: .85rem; }
-footer a { color: inherit; }
+.page-note { margin-top: 40px; color: var(--muted); font-size: .85rem; }
+.page-note a { color: inherit; }
 </style>
 </head>
 <body>
+<div id="navbar-mount"></div>
+${frame.noscriptNav({ name: 'OpenVibe.Search', links: [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }] })}
 <main>
 <h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>
@@ -92,12 +118,14 @@ footer a { color: inherit; }
 ${owner ? `<input type="hidden" name="owner" value="${esc(owner)}">` : ''}${type ? `<input type="hidden" name="type" value="${esc(type)}">` : ''}<button type="submit">Search</button>
 </form>
 ${body}
-<footer>
+<section class="page-note">
 <p>Private, draft and deleted documents are never shown. A document that is removed or made private leaves these results at once.
 JSON API: <a href="/api/v1/search?q=${encodeURIComponent(q || '')}">/api/v1/search</a>.
 Source: <a href="https://github.com/OpenVibers/OpenVibe.Search">OpenVibers/OpenVibe.Search</a>.</p>
-</footer>
+</section>
 </main>
+${frame.footer({ service: 'search', variant: 'compact', updates: '/updates' })}
+<script type="application/json" id="ov-frame-config">${JSON.stringify(FRAME_CONFIG).replace(/</g, '\\u003c')}</script>
 </body>
 </html>
 `;
@@ -117,9 +145,21 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
 function pageRouter({ searcher, auth }) {
     const router = express.Router();
 
+    router.get('/frame-init.js', (_req, res) => {
+        res.type('application/javascript').set('Cache-Control', 'public, max-age=3600').send(FRAME_INIT);
+    });
+
+    // What shipped on OpenVibe.Search: the shared update log every OpenVibe site has.
+    router.get('/updates', (_req, res) => {
+        res.setHeader('Content-Security-Policy', CSP);
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + frame.shippedScript() }));
+    });
+
     router.get('/robots.txt', (_req, res) => {
         res.type('text/plain').set('Cache-Control', 'public, max-age=3600')
-            .send('User-agent: *\nAllow: /$\nDisallow: /?\nDisallow: /api/\nDisallow: /internal/\n');
+            .send('User-agent: *\nAllow: /$\nAllow: /updates\nDisallow: /?\nDisallow: /api/\nDisallow: /internal/\n');
     });
 
     router.get('/', (req, res, next) => {
@@ -145,7 +185,7 @@ function pageRouter({ searcher, auth }) {
             if (!(err instanceof AuthError)) return next(err);
             viewer = null; // a browser page never 401s: an unverifiable credential searches as anonymous
         }
-        let body = '<p class="note">Type some words to search. Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>';
+        let body = '<p class="note">Type some words to search. Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>' + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
         let status = 200;
         if (searching) {
             try {

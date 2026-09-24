@@ -30,7 +30,31 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.strictEqual(r.headers.get('x-robots-tag'), null);
     assert.strictEqual(r.headers.get('cache-control'), 'no-store');
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
-    assert.ok(!/<script/i.test(r.text), 'no JavaScript on the page');
+    // The OpenVibe Frame (navbar, footer, shipped views) is the only script: from this site or
+    // openvibe.network, never inline JavaScript (the Frame's config is a JSON data block).
+    const csp = r.headers.get('content-security-policy');
+    assert.match(csp, /script-src 'self' https:\/\/openvibe\.network;/);
+    assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed');
+    const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    for (const [, attrs, body] of scripts) {
+        if (/type="application\/json"/.test(attrs)) continue;
+        assert.strictEqual(body.trim(), '', 'no inline JavaScript');
+        const src = (/src="([^"]+)"/.exec(attrs) || [])[1];
+        assert.ok(src && (src.startsWith('/') || src.startsWith('https://openvibe.network/')), `script from this site or openvibe.network: ${src}`);
+    }
+    assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
+    assert.ok(r.text.includes('data-ov-shipped="latest" data-service="search" href="/updates"'), 'what shipped');
+});
+
+t('the Frame init is a same-origin script and /updates is the shared log', async () => {
+    const init = await fetch(`${svc.base}/frame-init.js`);
+    assert.strictEqual(init.status, 200);
+    assert.match(init.headers.get('content-type'), /javascript/);
+    assert.match(await init.text(), /OpenVibeNavbar\.init/);
+    const r = await html('/updates');
+    assert.strictEqual(r.status, 200);
+    assert.ok(r.text.includes('What shipped on OpenVibe.Search') && r.text.includes('data-ov-shipped="log" data-service="search"'));
+    assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
 });
 
 t('results show public documents only, escaped, linked to their canonical URL, noindex', async () => {
