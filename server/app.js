@@ -24,6 +24,8 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     const metrics = instrument(app, { service: 'search', release: release.release });
     registerSearchGauges(metrics.registry, { db, outbox, purges });
     app.use(http.middleware());
+    // One W3C trace across services (openvibe-shared/trace): calls made while serving a request carry its traceparent.
+    require('openvibe-shared/trace').install(app);
     app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         next();
