@@ -80,7 +80,7 @@ function layout({ title, q, owner, type, body, noindex }) {
 <title>${esc(title)}</title>
 ${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
 <meta name="color-scheme" content="light dark">
-${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link')).join('\n')}
+${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n')}
 <script src="${ovServe.url('theme-loader.js')}" defer></script>
 <script src="${ovServe.url('navbar.js')}" defer></script>
 <script src="${ovServe.url('footer.js')}" defer></script>
