@@ -11,6 +11,7 @@
  * pages are noindex. Clients that do not ask for HTML get the plain-text route index at /.
  */
 const express = require('express');
+const ovServe = require('openvibe-shared/serve');
 const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
 
@@ -80,9 +81,9 @@ function layout({ title, q, owner, type, body, noindex }) {
 ${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
 <meta name="color-scheme" content="light dark">
 ${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link')).join('\n')}
-<script src="${NETWORK}/shared/theme-loader.js" defer></script>
-<script src="${NETWORK}/shared/navbar.js" defer></script>
-<script src="${NETWORK}/shared/footer.js" defer></script>
+<script src="${ovServe.url('theme-loader.js')}" defer></script>
+<script src="${ovServe.url('navbar.js')}" defer></script>
+<script src="${ovServe.url('footer.js')}" defer></script>
 <script src="/frame-init.js" defer></script>
 <style>
 :root { --bg: #fff; --fg: #1a1a1a; --muted: #5c5c66; --line: #dcdce3; --accent: #2456d6; --mark: #fff2a8; }
@@ -155,7 +156,7 @@ function pageRouter({ searcher, auth }) {
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Cache-Control', 'public, max-age=60');
-        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + frame.shippedScript() }));
+        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>` }));
     });
 
     router.get('/robots.txt', (_req, res) => {

@@ -32,6 +32,8 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     });
 
     // The webhook reads its raw body itself (the signature covers the exact bytes).
+    // This site's own pinned copy of the OpenVibe Frame's browser files (openvibe-shared/serve).
+    app.use('/shared', require('openvibe-shared/serve').handler());
     app.use(webhookRouter({ config, db, store, relay, log, now }));
 
     app.use('/api', express.json({ limit: config.maxBodyBytes, type: ['application/json', 'application/*+json'] }));
