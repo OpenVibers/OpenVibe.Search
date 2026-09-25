@@ -95,7 +95,7 @@ h1 { font-size: 1.4rem; margin: 0 0 4px; }
 .lede { color: var(--muted); margin: 0 0 20px; }
 form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 input[type=search] { flex: 1 1 260px; min-width: 0; padding: 10px 12px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; }
-button { padding: 10px 16px; font: inherit; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+button { padding: 10px 16px; font: inherit; border: 0; border-radius: 8px; background: var(--accent-strong, #1d4ed8); color: var(--on-accent-strong, #fff); cursor: pointer; }
 ol { list-style: none; padding: 0; margin: 0; }
 li { padding: 14px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 li a.t { color: var(--accent); font-size: 1.05rem; text-decoration: none; }
