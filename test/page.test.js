@@ -39,7 +39,8 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     const csp = r.headers.get('content-security-policy');
     // Plus Cloudflare Web Analytics, which Cloudflare injects at the edge (the privacy text discloses it).
     assert.match(csp, /script-src 'self' https:\/\/openvibe\.network https:\/\/static\.cloudflareinsights\.com;/);
-    assert.match(csp, /connect-src 'self' https:\/\/openvibe\.network https:\/\/cloudflareinsights\.com;/);
+    // And the Events realtime stream, for release notifications (release-watch, openvibe-shared 1.17).
+    assert.match(csp, /connect-src 'self' https:\/\/openvibe\.network https:\/\/cloudflareinsights\.com https:\/\/events\.openvibe\.network;/);
     assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed');
     const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
     for (const [, attrs, body] of scripts) {

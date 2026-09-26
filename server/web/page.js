@@ -21,7 +21,9 @@ const NETWORK = 'https://openvibe.network';
 // Cloudflare Web Analytics: Cloudflare injects its beacon at the edge and the privacy text says it may measure
 // performance; script-src loads the beacon, connect-src is where it reports.
 const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://cloudflareinsights.com';
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON}; connect-src 'self' ${NETWORK} ${CF_REPORT}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+// The Events realtime stream: release notifications (release-watch's EventSource, openvibe-shared 1.17).
+const EVENTS = 'https://events.openvibe.network';
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
 const frame = require('openvibe-shared/frame');
 const FRAME_INIT = `(function () {
   var tries = 0;
