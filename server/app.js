@@ -54,7 +54,7 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     app.use(queryRouter({ config, store, engine, auth, searcher }));
     app.use(savedRouter({ config, saved, searcher, auth }));
     // GET / (HTML search page for browsers, the text route index otherwise) and /robots.txt.
-    app.use(pageRouter({ searcher, auth }));
+    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl }));
 
     app.use((req, res) => http.sendProblem(res, 404, 'search.not_found', { detail: `no route ${req.method} ${req.path}`, ctx: req.ov }));
 

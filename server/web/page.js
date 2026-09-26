@@ -71,14 +71,14 @@ const TEXT_INDEX = [
     '',
 ].join('\n');
 
-function layout({ title, q, owner, type, body, noindex }) {
+function layout({ title, q, owner, type, body, noindex, canonical }) {
     return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
+${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}${canonical && !noindex ? `<link rel="canonical" href="${esc(canonical)}">\n` : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
 <meta name="color-scheme" content="light dark">
 ${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n')}
 <script src="${ovServe.url('theme-loader.js')}" defer></script>
@@ -144,7 +144,9 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
     }).join('\n')}</ol>`;
 }
 
-function pageRouter({ searcher, auth }) {
+/** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates. */
+function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network' }) {
+    const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
     router.get('/frame-init.js', (_req, res) => {
@@ -156,7 +158,7 @@ function pageRouter({ searcher, auth }) {
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Cache-Control', 'public, max-age=60');
-        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>` }));
+        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 
     router.get('/robots.txt', (_req, res) => {
@@ -209,7 +211,7 @@ function pageRouter({ searcher, auth }) {
                 body = `<p class="empty">${esc(err.message)}.</p>`;
             }
         }
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching }));
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/` }));
     });
 
     return router;

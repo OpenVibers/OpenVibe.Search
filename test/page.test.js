@@ -28,6 +28,10 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.match(r.text, /<form method="get" action="\/" role="search">/);
     assert.ok(!/noindex/.test(r.text));
     assert.strictEqual(r.headers.get('x-robots-tag'), null);
+    // One canonical URL (the browser check found none): the configured origin's front page.
+    const canon = r.text.match(/<link rel="canonical" href="([^"]+)">/g) || [];
+    assert.strictEqual(canon.length, 1);
+    assert.match(canon[0], /href="https?:\/\/[^"/]+\/">$/);
     assert.strictEqual(r.headers.get('cache-control'), 'no-store');
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
     // The OpenVibe Frame (navbar, footer, shipped views) is the only script: from this site or
@@ -54,6 +58,7 @@ t('the Frame init is a same-origin script and /updates is the shared log', async
     const r = await html('/updates');
     assert.strictEqual(r.status, 200);
     assert.ok(r.text.includes('What shipped on OpenVibe.Search') && r.text.includes('data-ov-shipped="log" data-service="search"'));
+    assert.match(r.text, /<link rel="canonical" href="https?:\/\/[^"/]+\/updates">/);
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
 });
 
@@ -62,6 +67,7 @@ t('results show public documents only, escaped, linked to their canonical URL, n
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.match(r.text, /<meta name="robots" content="noindex, nofollow">/);
+    assert.ok(!/rel="canonical"/.test(r.text), 'a result page is noindex: no canonical');
     assert.ok(r.text.includes('Kestrel &lt;script&gt;alert(1)&lt;/script&gt; nesting'));
     assert.ok(!r.text.includes('<script>alert(1)'));
     assert.ok(r.text.includes('href="https://openvibe.wiki/p/kestrel?a=1&amp;b=2"'));
