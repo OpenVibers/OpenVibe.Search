@@ -37,7 +37,9 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     // The OpenVibe Frame (navbar, footer, shipped views) is the only script: from this site or
     // openvibe.network, never inline JavaScript (the Frame's config is a JSON data block).
     const csp = r.headers.get('content-security-policy');
-    assert.match(csp, /script-src 'self' https:\/\/openvibe\.network;/);
+    // Plus Cloudflare Web Analytics, which Cloudflare injects at the edge (the privacy text discloses it).
+    assert.match(csp, /script-src 'self' https:\/\/openvibe\.network https:\/\/static\.cloudflareinsights\.com;/);
+    assert.match(csp, /connect-src 'self' https:\/\/openvibe\.network https:\/\/cloudflareinsights\.com;/);
     assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed');
     const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
     for (const [, attrs, body] of scripts) {

@@ -18,7 +18,10 @@ const { QueryError, one } = require('../api/query');
 // The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; its init is
 // /frame-init.js (same origin, no inline script), reading the JSON config in #ov-frame-config.
 const NETWORK = 'https://openvibe.network';
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK}; connect-src 'self' ${NETWORK}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+// Cloudflare Web Analytics: Cloudflare injects its beacon at the edge and the privacy text says it may measure
+// performance; script-src loads the beacon, connect-src is where it reports.
+const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://cloudflareinsights.com';
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON}; connect-src 'self' ${NETWORK} ${CF_REPORT}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
 const frame = require('openvibe-shared/frame');
 const FRAME_INIT = `(function () {
   var tries = 0;
