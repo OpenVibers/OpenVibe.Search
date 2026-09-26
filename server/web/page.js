@@ -91,8 +91,10 @@ ${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${N
 <script src="${ovServe.url('footer.js')}" defer></script>
 <script src="/frame-init.js" defer></script>
 <style>
-:root { --bg: #fff; --fg: #1a1a1a; --muted: #5c5c66; --line: #dcdce3; --accent: #2456d6; --mark: #fff2a8; }
-@media (prefers-color-scheme: dark) { :root { --bg: #111317; --fg: #e8e8ec; --muted: #a0a0ab; --line: #2c2f36; --accent: #7aa2ff; --mark: #5a4b00; } }
+:root { --bg: #fff; --fg: #1a1a1a; --muted: #5c5c66; --line: #dcdce3; --accent: #2456d6; --mark: #fff2a8; --bg-secondary: #f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111317; --fg: #e8e8ec; --muted: #a0a0ab; --line: #2c2f36; --accent: #7aa2ff; --mark: #5a4b00; --bg-secondary: #1a1d23; } }
+/* The shared widgets (shipped.js, the Frame) read the network token names: map them onto this palette. */
+:root { --text-primary: var(--fg); --text-secondary: var(--muted); --border: var(--line); }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
