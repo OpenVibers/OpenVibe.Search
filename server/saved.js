@@ -78,35 +78,35 @@ function createSavedSearches(db, { maxPerSubject = 50, now = () => Date.now() } 
      * Save (subject, q, filters) with a name. The same query again returns the existing row
      * (renamed when a new name is given): { created, saved } | { error: 'limit' }.
      */
-    function save(subject, { name, q, filters }) {
-        return db.transaction(() => {
+    async function save(subject, { name, q, filters }) {
+        return await db.tx(async () => {
             const f = canonicalFilters(filters);
             const hash = hashOf(q, f);
             const at = now();
-            const existing = st.byHash.get(subject, hash);
+            const existing = await st.byHash.get(subject, hash);
             if (existing) {
-                if (name && name !== existing.name) st.rename.run(name, at, existing.id);
-                return { created: false, saved: view(st.get.get(existing.id, subject)) };
+                if (name && name !== existing.name) await st.rename.run(name, at, existing.id);
+                return { created: false, saved: view(await st.get.get(existing.id, subject)) };
             }
-            if (st.count.get(subject).n >= maxPerSubject) return { error: 'limit' };
+            if ((await st.count.get(subject)).n >= maxPerSubject) return { error: 'limit' };
             const id = `svs_${ids.ulid(at).toLowerCase()}`;
-            st.insert.run({ id, subject, name: name || q || 'All documents', q, filters: JSON.stringify(f), query_hash: hash, at });
-            return { created: true, saved: view(st.get.get(id, subject)) };
-        })();
+            await st.insert.run({ id, subject, name: name || q || 'All documents', q, filters: JSON.stringify(f), query_hash: hash, at });
+            return { created: true, saved: view(await st.get.get(id, subject)) };
+        });
     }
 
     return {
-        list: (subject) => st.list.all(subject).map(view),
+        list: async (subject) => (await st.list.all(subject)).map(view),
         /** One saved search of this subject; another subject's id is the same as a missing one. */
-        get: (subject, id) => {
+        get: async (subject, id) => {
             if (!ID_RE.test(String(id))) return null;
-            const r = st.get.get(id, subject);
+            const r = await st.get.get(id, subject);
             return r ? view(r) : null;
         },
         save,
-        remove: (subject, id) => ID_RE.test(String(id)) && st.del.run(id, subject).changes > 0,
-        markRun: (id) => st.ran.run(now(), id),
-        total: () => st.total.get().n,
+        remove: async (subject, id) => ID_RE.test(String(id)) && (await st.del.run(id, subject)).changes > 0,
+        markRun: async (id) => await st.ran.run(now(), id),
+        total: async () => (await st.total.get()).n,
         maxPerSubject,
     };
 }

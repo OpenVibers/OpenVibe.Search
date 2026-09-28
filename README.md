@@ -30,7 +30,7 @@ npm test               # every test/*.test.js, temp databases, no network needed
 
 Node 22 in production (`fnm exec --using=22.22.1 npm test`). Production: `/opt/openvibe.search`,
 env `/etc/openvibe/search.env`, unit [deploy/systemd/openvibe-search.service](deploy/systemd/openvibe-search.service),
-index `/var/lib/openvibe-search/search.db`, nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)
+database `ov_search` on the host's data role (ADR-035; `sudo /opt/openvibe.host/roles/data/add-service.sh search`; the one-time move from `/var/lib/openvibe-search/search.db` is `scripts/migrate-to-postgres.js`, and the full-text index rebuilds itself from the documents at boot), nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)
 (the public vhost exposes the search page, the GET query API, saved searches and health; the owner
 API and the Events webhook are loopback-only, and owners and Events call `127.0.0.1:4710`).
 
@@ -173,9 +173,9 @@ the `search.document.removed` event it records:
 ## Owns
 
 - the index document contract (`search.index-document@1`, released in openvibe-contracts v0.12.0; proposal in [docs/contracts-proposal/](docs/contracts-proposal/))
-- `documents`, `doc_acl`, `doc_facets`, `fts_public`, `fts_restricted`, `idempotency_receipts`,
-  `ingest_rejections`, `event_outbox`, `removals`, `cdn_purges`, `saved_searches` (SQLite; engine
-  decision in [docs/adr-engine.md](docs/adr-engine.md))
+- `documents`, `doc_acl`, `doc_facets`, `search_fts` (the full-text index), `idempotency_receipts`,
+  `ingest_rejections`, `event_outbox`, `removals`, `cdn_purges`, `saved_searches` (PostgreSQL, schema in
+  [migrations/](migrations/); engine decision in [docs/adr-engine.md](docs/adr-engine.md))
 - the query API, its ranking and ACL filtering, the search page and saved searches; deletion and
   visibility-change propagation, including the CDN purge of removed public URLs
 
@@ -189,6 +189,7 @@ the `search.document.removed` event it records:
 ## Depends on
 
 - OpenVibe.Contracts (service tokens, problem details, ids, the event envelope)
+- PostgreSQL 18 (OpenVibe.Host `roles/data/`, ADR-035): documents and the full-text index, async through `openvibe-sdk/db`
 - OpenVibe.Network (signing key; service principal `search`)
 - OpenVibe.Events (index-document deliveries in, `search.document.*` out)
 
@@ -209,7 +210,7 @@ Called elsewhere, as the service principal `search` (client credentials from Ope
 | OpenVibe.Events | `events.event.publish` (audience `openvibe.events`) | the outbox relays `search.document.indexed` / `search.document.removed` |
 | OpenVibe.Events | `events.subscription.manage` (`npm run subscribe`, once) | the HMAC-signed subscription to `*.index_document.*` that delivers index events |
 
-Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.49.0);
+Released in `openvibe-contracts` v0.76.0 with the service manifest (this repo pins v0.49.0);
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
 `openvibe-contracts-check --service search`.
 
@@ -294,7 +295,7 @@ fast-forward `/opt/openvibe.search`, install on a lockfile change, restart, wait
 | Unit | `openvibe-search.service` ([deploy/systemd/](deploy/systemd/openvibe-search.service)), runs as `ubuntu` |
 | Port | `127.0.0.1:4710` |
 | Env file | `/etc/openvibe/search.env` |
-| Data | `/var/lib/openvibe-search/search.db` (`StateDirectory`) |
+| Data | PostgreSQL `ov_search` (`DATABASE_URL` through PgBouncer; migrations on `DATABASE_DIRECT_URL`) |
 | Public host | nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf) (below) |
 
 Rollback: ovhost puts the previous sha back by itself when `/api/ready` does not answer 2xx after the

@@ -60,7 +60,7 @@ t('indexing: 120 a minute per service principal, refused before the store is tou
     const d = doc({ id: 'pg_over' });
     const r = await call('PUT', `/api/v1/documents/wiki/page/${d.id}`, { token: WIKI, body: d });
     assert.deepStrictEqual([r.status, r.body.code, r.headers.get('retry-after')], [429, 'rate_limited', '60']);
-    assert.strictEqual(svc.store.get('wiki', 'page', 'pg_over'), null, 'nothing stored');
+    assert.strictEqual(await svc.store.get('wiki', 'page', 'pg_over'), null, 'nothing stored');
     const b = doc({ owner: 'blog', type: 'post', id: 'post_1', canonical_url: 'https://openvibe.blog/p/1' });
     assert.strictEqual((await call('PUT', '/api/v1/documents/blog/post/post_1', { token: BLOG, body: b })).status, 200, 'another service still indexes');
 });

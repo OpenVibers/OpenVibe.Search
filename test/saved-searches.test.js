@@ -23,9 +23,9 @@ const call = (method, p, opts = {}) => request(svc.base, method, p, opts);
 
 t('boot with a small per-person limit', async () => {
     svc = await boot({ env: { BASE_URL: ORIGIN, SEARCH_SAVED_MAX_PER_SUBJECT: '3' } });
-    svc.store.apply(doc({ id: 'pub', title: 'Zebra migration public', canonical_url: 'https://openvibe.wiki/p/pub', facets: { category: 'animals' } }));
-    svc.store.apply(doc({ id: 'mem', visibility: 'members', acl: { subjects: [alice] }, title: 'Zebra migration for alice', facets: { category: 'animals' } }));
-    svc.store.apply(doc({ owner: 'blog', type: 'post', id: 'other', title: 'Zebra blog post', canonical_url: 'https://openvibe.blog/p/other' }));
+    await svc.store.apply(doc({ id: 'pub', title: 'Zebra migration public', canonical_url: 'https://openvibe.wiki/p/pub', facets: { category: 'animals' } }));
+    await svc.store.apply(doc({ id: 'mem', visibility: 'members', acl: { subjects: [alice] }, title: 'Zebra migration for alice', facets: { category: 'animals' } }));
+    await svc.store.apply(doc({ owner: 'blog', type: 'post', id: 'other', title: 'Zebra blog post', canonical_url: 'https://openvibe.blog/p/other' }));
 });
 
 t('anonymous callers, guests and services without delegation cannot use saved searches', async () => {
@@ -71,11 +71,11 @@ t('running a saved search queries as the person now, with its filters', async ()
     assert.ok(after.body.saved_search.last_run_at);
 
     // Access is decided at run time: alice loses the members document, it leaves her results.
-    svc.store.apply(doc({ id: 'mem', revision: 2, visibility: 'members', acl: { subjects: [bob] }, title: 'Zebra migration for alice', facets: { category: 'animals' } }));
+    await svc.store.apply(doc({ id: 'mem', revision: 2, visibility: 'members', acl: { subjects: [bob] }, title: 'Zebra migration for alice', facets: { category: 'animals' } }));
     const r2 = await call('GET', `/api/v1/saved-searches/${saved.id}/results`, as(alice));
     assert.deepStrictEqual(r2.body.results.map(x => x.id), ['pub']);
     // And a deleted public document leaves it too.
-    svc.store.remove('wiki', 'page', 'pub');
+    await svc.store.remove('wiki', 'page', 'pub');
     const r3 = await call('GET', `/api/v1/saved-searches/${saved.id}/results`, as(alice));
     assert.deepStrictEqual(r3.body.results, []);
 });

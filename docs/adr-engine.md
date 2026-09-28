@@ -51,3 +51,16 @@ is no corpus to measure: no product indexes anything today.
   (Japanese/Chinese get no word segmentation; a later engine or an ICU tokenizer fixes that).
 - Moving to PostgreSQL is an engine swap plus a re-index from owners (the reconciliation API
   exists for exactly that), not a contract change.
+
+## Update 2026-09-28: PostgreSQL full-text search (ADR-035)
+
+Search moved to PostgreSQL with every other service. The engine interface held: `server/engine/pg.js` replaced
+`server/engine/fts5.js` and nothing else learned the engine changed. One table, `search_fts`, split by audience
+(exposure 3 public listed, 1 restricted), with a `tsvector` weighted title A, summary B, body C (FTS5's 10 / 4 / 1 as
+`ts_rank` weights) and a GIN index. Text is folded (diacritics removed) and split into runs of letters and digits before
+the `simple` configuration sees it, so tokens are exactly FTS5 unicode61's: on a copy of production, the match counts
+for sampled terms were identical. The rank is minus `ts_rank` times the same freshness boost, so ascending order and
+the keyset cursors work unchanged. Snippets are `ts_headline` over the summary and body (the title when only it
+matches), computed for the returned page only. The index is derived: at boot, when its counts disagree with the
+documents table (after the one-time import, whose FTS5 tables are not copied), it is rebuilt from `documents.doc`.
+

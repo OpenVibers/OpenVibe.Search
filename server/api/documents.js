@@ -64,7 +64,7 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
         return true;
     }
 
-    router.put('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.index', index), (req, res) => {
+    router.put('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.index', index), async (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
@@ -77,12 +77,12 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
         const doc = { ...body, owner: req.params.owner, type: req.params.type, id: req.params.id };
         const v = validate(doc);
         if (!v.valid) return http.sendProblem(res, 422, 'search.bad_document', { detail: 'document does not match search.index-document@1', ctx, errors: v.errors });
-        const r = store.apply(doc, { via: 'api', traceId: ctx.traceId });
+        const r = await store.apply(doc, { via: 'api', traceId: ctx.traceId });
         if (r.outcome === 'applied' && relay) relay.flush().catch(() => {});
         return outcomeResponse(res, ctx, r);
     });
 
-    router.delete('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.remove', index), (req, res) => {
+    router.delete('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.remove', index), async (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         let revision = null;
@@ -90,25 +90,25 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
             if (!/^\d{1,15}$/.test(String(req.query.revision))) return http.sendProblem(res, 400, 'search.bad_revision', { detail: 'revision must be a non-negative integer', ctx });
             revision = Number(req.query.revision);
         }
-        const r = store.remove(req.params.owner, req.params.type, req.params.id, { revision, via: 'api', traceId: ctx.traceId });
+        const r = await store.remove(req.params.owner, req.params.type, req.params.id, { revision, via: 'api', traceId: ctx.traceId });
         if (r.outcome === 'applied' && relay) relay.flush().catch(() => {});
         return outcomeResponse(res, ctx, r);
     });
 
-    router.get('/api/v1/owners/:owner/documents', guard, limits('search.owner.documents'), (req, res) => {
+    router.get('/api/v1/owners/:owner/documents', guard, limits('search.owner.documents'), async (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         const type = req.query.type ? String(req.query.type) : null;
         if (type && !TYPE_RE.test(type)) return http.sendProblem(res, 400, 'search.bad_identity', { detail: 'type is malformed', ctx });
         const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
-        res.json({ owner: req.params.owner, ...store.ownerPage(req.params.owner, { type, after, limit }) });
+        res.json({ owner: req.params.owner, ...await store.ownerPage(req.params.owner, { type, after, limit }) });
     });
 
-    router.get('/api/v1/owners/:owner/documents/:type/:id', guard, limits('search.owner.document'), (req, res) => {
+    router.get('/api/v1/owners/:owner/documents/:type/:id', guard, limits('search.owner.document'), async (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
-        const found = store.get(req.params.owner, req.params.type, req.params.id);
+        const found = await store.get(req.params.owner, req.params.type, req.params.id);
         if (!found) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such document', ctx });
         res.json({
             document: found.doc,
@@ -120,10 +120,10 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
         });
     });
 
-    router.get('/api/v1/owners/:owner/rejections', guard, limits('search.owner.rejections'), (req, res) => {
+    router.get('/api/v1/owners/:owner/rejections', guard, limits('search.owner.rejections'), async (req, res) => {
         if (!ownerCheck(req, res)) return;
         const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
-        const rows = db.prepare('SELECT * FROM ingest_rejections WHERE owner = ? AND seq > ? ORDER BY seq LIMIT 200').all(req.params.owner, after);
+        const rows = await db.prepare('SELECT * FROM ingest_rejections WHERE owner = ? AND seq > ? ORDER BY seq LIMIT 200').all(req.params.owner, after);
         res.json({
             rejections: rows.map(r => ({
                 seq: r.seq, event_id: r.event_id, event_type: r.event_type, type: r.type, id: r.id, revision: r.revision,
@@ -133,11 +133,11 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
         });
     });
 
-    router.get('/api/v1/owners/:owner/removals', guard, limits('search.owner.removals'), (req, res) => {
+    router.get('/api/v1/owners/:owner/removals', guard, limits('search.owner.removals'), async (req, res) => {
         if (!ownerCheck(req, res)) return;
         const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
-        res.json({ owner: req.params.owner, ...purges.ownerFeed(req.params.owner, { after, limit }) });
+        res.json({ owner: req.params.owner, ...await purges.ownerFeed(req.params.owner, { after, limit }) });
     });
 
     return router;

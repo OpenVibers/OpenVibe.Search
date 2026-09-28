@@ -53,13 +53,13 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
     const guarded = (limit, h) => withViewer(auth, h, limit);
     const change = { minute: 30, hour: 300 };
 
-    router.get('/api/v1/saved-searches', guarded(limits('search.saved.list'), (req, res, viewer) => {
+    router.get('/api/v1/saved-searches', guarded(limits('search.saved.list'), async (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
-        res.json({ saved_searches: saved.list(subject), max: saved.maxPerSubject });
+        res.json({ saved_searches: await saved.list(subject), max: saved.maxPerSubject });
     }));
 
-    router.post('/api/v1/saved-searches', guarded(limits('search.saved.create', change), (req, res, viewer) => {
+    router.post('/api/v1/saved-searches', guarded(limits('search.saved.create', change), async (req, res, viewer) => {
         const ctx = req.ov;
         const subject = person(req, res, viewer, { write: true });
         if (!subject) return;
@@ -89,39 +89,39 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
         const text = q.trim();
         if (text && !searcher.hasWords(text)) throw new QueryError('search.bad_query', 'q has no searchable words');
         if (!text && !hasFilter) throw new QueryError('search.bad_saved_search', 'a saved search needs words (q) or at least one filter');
-        const r = saved.save(subject, { name: name.trim(), q: text, filters });
+        const r = await saved.save(subject, { name: name.trim(), q: text, filters });
         if (r.error === 'limit') return http.sendProblem(res, 409, 'search.saved_search_limit', { detail: `at most ${saved.maxPerSubject} saved searches per person`, ctx });
         res.status(r.created ? 201 : 200).json({ saved_search: r.saved });
     }));
 
-    router.get('/api/v1/saved-searches/:id', guarded(limits('search.saved.read'), (req, res, viewer) => {
+    router.get('/api/v1/saved-searches/:id', guarded(limits('search.saved.read'), async (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
-        const s = saved.get(subject, req.params.id);
+        const s = await saved.get(subject, req.params.id);
         if (!s) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
         res.json({ saved_search: s });
     }));
 
-    router.delete('/api/v1/saved-searches/:id', guarded(limits('search.saved.delete', change), (req, res, viewer) => {
+    router.delete('/api/v1/saved-searches/:id', guarded(limits('search.saved.delete', change), async (req, res, viewer) => {
         const subject = person(req, res, viewer, { write: true });
         if (!subject) return;
-        if (!saved.remove(subject, req.params.id)) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
+        if (!await saved.remove(subject, req.params.id)) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
         res.status(204).end();
     }));
 
-    router.get('/api/v1/saved-searches/:id/results', guarded(limits('search.saved.run'), (req, res, viewer) => {
+    router.get('/api/v1/saved-searches/:id/results', guarded(limits('search.saved.run'), async (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
-        const s = saved.get(subject, req.params.id);
+        const s = await saved.get(subject, req.params.id);
         if (!s) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
-        const body = searcher.run({
+        const body = await searcher.run({
             text: s.q,
             filters: { ...s.filters, facets: s.filters.facets || [] },
             viewer,
             limit: one(req.query.limit),
             cursor: one(req.query.cursor),
         });
-        saved.markRun(s.id);
+        await saved.markRun(s.id);
         res.json({ saved_search: { id: s.id, name: s.name }, ...body });
     }));
 

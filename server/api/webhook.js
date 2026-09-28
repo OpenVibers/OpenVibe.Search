@@ -73,23 +73,23 @@ function verifySignature(raw, header, secrets) {
 }
 
 function createInbox(db, { now = () => Date.now() } = {}) {
-    const claim = db.prepare('INSERT OR IGNORE INTO idempotency_receipts (consumer, event_id, outcome, processed_at) VALUES (?, ?, ?, ?)');
+    const claim = db.prepare('INSERT INTO idempotency_receipts (consumer, event_id, outcome, processed_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING');
     const setOutcome = db.prepare('UPDATE idempotency_receipts SET outcome = ? WHERE consumer = ? AND event_id = ?');
     const reject = db.prepare(`INSERT INTO ingest_rejections (event_id, event_type, owner, type, id, revision, code, detail, at)
         VALUES (@event_id, @event_type, @owner, @type, @id, @revision, @code, @detail, @at)`);
 
     /** fn() runs inside the transaction and returns an outcome string. */
-    function once(eventId, fn) {
-        return db.transaction(() => {
-            if (claim.run(CONSUMER, eventId, 'processing', now()).changes === 0) return { duplicate: true };
-            const outcome = fn();
-            setOutcome.run(outcome, CONSUMER, eventId);
+    async function once(eventId, fn) {
+        return await db.tx(async () => {
+            if ((await claim.run(CONSUMER, eventId, 'processing', now())).changes === 0) return { duplicate: true };
+            const outcome = await fn();
+            await setOutcome.run(outcome, CONSUMER, eventId);
             return { duplicate: false, outcome };
-        })();
+        });
     }
 
-    function recordRejection(r) {
-        reject.run({ owner: null, type: null, id: null, revision: null, detail: null, event_type: null, ...r, at: now() });
+    async function recordRejection(r) {
+        await reject.run({ owner: null, type: null, id: null, revision: null, detail: null, event_type: null, ...r, at: now() });
     }
 
     return { once, recordRejection };
@@ -125,7 +125,7 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
 
     router.post('/internal/events',
         express.raw({ type: () => true, limit: config.maxBodyBytes }),
-        (req, res) => {
+        async (req, res, next) => { try {
             const ctx = req.ov;
             const secrets = config.events.webhookSecrets;
             if (!secrets.length) return http.sendProblem(res, 503, 'search.webhook_disabled', { detail: 'SEARCH_EVENTS_SECRET is not set', ctx });
@@ -141,12 +141,12 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
                 return http.sendProblem(res, 400, 'search.bad_delivery', { detail: 'body must be { event: <envelope>, seq }', ctx });
             }
 
-            const r = inbox.once(event.event_id, () => {
+            const r = await inbox.once(event.event_id, async () => {
                 const parsed = documentFromEvent(event, config.events.owners);
                 if (parsed.ignore) return 'ignored';
                 if (parsed.reject) {
                     const p = event.payload || {};
-                    inbox.recordRejection({
+                    await inbox.recordRejection({
                         event_id: event.event_id, event_type: event.event_type, owner: event.source,
                         type: typeof p.type === 'string' ? p.type.slice(0, 40) : null,
                         id: typeof p.id === 'string' ? p.id.slice(0, 128) : null,
@@ -157,12 +157,12 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
                     return `rejected:${parsed.reject.code}`;
                 }
                 const traceId = typeof event.trace_id === 'string' ? event.trace_id : null;
-                const out = store.apply(parsed.doc, { via: 'event', eventId: event.event_id, traceId });
+                const out = await store.apply(parsed.doc, { via: 'event', eventId: event.event_id, traceId });
                 return out.outcome;
             });
             if (!r.duplicate && r.outcome === 'applied' && relay) relay.flush().catch(() => {});
             res.status(200).json({ event_id: event.event_id, duplicate: Boolean(r.duplicate), outcome: r.outcome || null });
-        });
+        } catch (err) { return next(err); } });   // Express 4 does not catch an async handler's rejection
 
     return router;
 }

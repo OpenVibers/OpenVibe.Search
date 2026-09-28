@@ -215,7 +215,7 @@ t('a visibility change or deletion leaves results at once and announces search.d
     await request(svc.base, 'DELETE', '/api/v1/documents/wiki/page/flip?revision=3', { token: WIKI });
     assert.deepStrictEqual(idsOf(await q('q=iotaword', asUser(alice))), []);
 
-    const removed = svc.outbox.all().filter(e => e.event_type === 'search.document.removed' && e.payload.id === 'flip');
+    const removed = (await svc.outbox.all()).filter(e => e.event_type === 'search.document.removed' && e.payload.id === 'flip');
     assert.strictEqual(removed.length, 2);
     assert.deepStrictEqual(removed.map(e => [e.payload.reason, e.payload.previous_exposure, e.payload.exposure]), [
         ['visibility_changed', 'public_listed', 'restricted'],
@@ -233,7 +233,7 @@ t('publishing → draft and public → noindex also announce removal', async () 
     const d2 = doc({ id: 'noidx', title: 'Lambdaword', revision: 1 });
     await put(d2);
     await put({ ...d2, revision: 2, indexability: { decision: 'noindex', reasons: ['duplicate_without_canonical'] } });
-    const reasons = svc.outbox.all().filter(e => e.event_type === 'search.document.removed' && ['unpub', 'noidx'].includes(e.payload.id)).map(e => `${e.payload.id}:${e.payload.reason}`);
+    const reasons = (await svc.outbox.all()).filter(e => e.event_type === 'search.document.removed' && ['unpub', 'noidx'].includes(e.payload.id)).map(e => `${e.payload.id}:${e.payload.reason}`);
     assert.deepStrictEqual(reasons, ['unpub:not_published', 'noidx:noindex']);
     assert.deepStrictEqual(idsOf(await q('q=kappaword')), []);
     assert.deepStrictEqual(idsOf(await q('q=lambdaword')), []);

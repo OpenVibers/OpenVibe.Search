@@ -7,7 +7,7 @@ const { boot, request, serviceToken, doc, indexEvent, deliver, suite } = require
 const t = suite('webhook-inbox');
 let svc;
 const search = async (q) => (await request(svc.base, 'GET', `/api/v1/search?q=${encodeURIComponent(q)}`)).body.results;
-const receipts = () => svc.db.prepare('SELECT COUNT(*) AS n FROM idempotency_receipts').get().n;
+const receipts = async () => (await svc.db.prepare('SELECT COUNT(*) AS n FROM idempotency_receipts').get()).n;
 
 t('boot', async () => { svc = await boot(); });
 
@@ -18,7 +18,7 @@ t('an unsigned or wrongly signed delivery is refused and changes nothing', async
     const r2 = await request(svc.base, 'POST', '/internal/events', { raw: JSON.stringify({ event: e }), headers: { 'Content-Type': 'application/json' } });
     assert.strictEqual(r2.status, 401);
     assert.strictEqual((await search('muword')).length, 0);
-    assert.strictEqual(receipts(), 0);
+    assert.strictEqual(await receipts(), 0);
 });
 
 t('signature v2 is required: a v1-only delivery and a stale v2 timestamp are refused', async () => {
@@ -30,7 +30,7 @@ t('signature v2 is required: a v1-only delivery and a stale v2 timestamp are ref
     const future = await deliver(svc.base, e, { now: Date.now() + 301000 });
     assert.strictEqual(future.status, 401, 'v2 from too far in the future: refused');
     assert.strictEqual((await search('omiword')).length, 0);
-    assert.strictEqual(receipts(), 0);
+    assert.strictEqual(await receipts(), 0);
     const ok = await deliver(svc.base, e);
     assert.strictEqual(ok.status, 200, 'a fresh v2 delivery of the same event is accepted');
     assert.strictEqual((await search('omiword')).length, 1);
@@ -45,7 +45,7 @@ t('a delivered upsert is indexed; the same event again is a no-op', async () => 
     const again = await deliver(svc.base, e, { seq: 2 });
     assert.deepStrictEqual([again.status, again.body.duplicate], [200, true]);
     assert.strictEqual((await search('nuword')).length, 1);
-    const events = svc.outbox.all().filter(x => x.payload.id === d.id && x.event_type === 'search.document.indexed');
+    const events = (await svc.outbox.all()).filter(x => x.payload.id === d.id && x.event_type === 'search.document.indexed');
     assert.strictEqual(events.length, 1, 'one effect, one event');
 });
 
@@ -73,7 +73,7 @@ t('a deletion event tombstones and wins over upserts delivered after it', async 
     assert.strictEqual((await deliver(svc.base, indexEvent(d))).body.outcome, 'stale');
     assert.strictEqual((await deliver(svc.base, indexEvent({ ...d, revision: 5 }))).body.outcome, 'stale');
     assert.strictEqual((await search('omicronword')).length, 0);
-    const removed = svc.outbox.all().filter(x => x.event_type === 'search.document.removed' && x.payload.id === d.id);
+    const removed = (await svc.outbox.all()).filter(x => x.event_type === 'search.document.removed' && x.payload.id === d.id);
     assert.deepStrictEqual(removed.map(x => x.payload.reason), ['deleted']);
 });
 
@@ -136,7 +136,7 @@ t('a failure while applying leaves no receipt, so the redelivery applies exactly
         const r1 = await deliver(svc.base, e);
         assert.strictEqual(r1.status, 500);
         assert.strictEqual((await search('tauword')).length, 0);
-        assert.strictEqual(svc.db.prepare('SELECT COUNT(*) AS n FROM idempotency_receipts WHERE event_id = ?').get(e.event_id).n, 0);
+        assert.strictEqual((await svc.db.prepare('SELECT COUNT(*) AS n FROM idempotency_receipts WHERE event_id = ?').get(e.event_id)).n, 0);
         const r2 = await deliver(svc.base, e, { seq: 2 });
         assert.deepStrictEqual([r2.status, r2.body.outcome], [200, 'applied']);
         const r3 = await deliver(svc.base, e, { seq: 3 });
@@ -145,7 +145,7 @@ t('a failure while applying leaves no receipt, so the redelivery applies exactly
         svc.store.apply = original;
     }
     assert.strictEqual((await search('tauword')).length, 1);
-    assert.strictEqual(svc.outbox.all().filter(x => x.payload.id === d.id).length, 1);
+    assert.strictEqual((await svc.outbox.all()).filter(x => x.payload.id === d.id).length, 1);
 });
 
 t('OpenVibe.Sources item documents (the first real producer) index for staff only', async () => {

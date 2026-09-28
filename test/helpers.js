@@ -56,9 +56,11 @@ async function boot({ env = {}, fetchImpl, tokenClient, now } = {}) {
         SEARCH_EVENTS_SECRET: WEBHOOK_SECRET,
         ...env,
     });
-    const h = await start({ config, log: silent, fetchImpl, tokenClient, now });
+    // One database per boot (PGlite, or SEARCH_TEST_STORE=pg: the containers), dropped when the boot stops.
+    const testdb = await require('./db').testDb();
+    const h = await start({ config, db: testdb.db, log: silent, fetchImpl, tokenClient, now });
     const base = `http://127.0.0.1:${h.server.address().port}`;
-    return { ...h, base, dir, async stop() { await h.close(); } };
+    return { ...h, base, dir, async stop() { await h.close(); await testdb.close(); } };
 }
 
 async function request(base, method, p, { token, body, headers = {}, raw } = {}) {
@@ -122,7 +124,7 @@ async function deliver(base, event, { secret = WEBHOOK_SECRET, seq = 1, badSigna
     const key = badSignature ? 'wrong-secret-' + 'y'.repeat(32) : secret;
     const ts = Math.floor(now / 1000);
     const v2 = v1Only ? {} : { 'X-OpenVibe-Timestamp': String(ts), 'X-OpenVibe-Signature-V2': signV2(raw, key, ts) };
-    return request(base, 'POST', '/internal/events', {
+    return await request(base, 'POST', '/internal/events', {
         raw,
         headers: { 'Content-Type': 'application/json', 'X-OpenVibe-Signature': sign(raw, key), ...v2, 'X-OpenVibe-Event-Id': event.event_id },
     });

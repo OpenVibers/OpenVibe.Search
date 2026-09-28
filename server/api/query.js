@@ -19,7 +19,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const { http } = require('openvibe-contracts');
-const { toMatch, snippetHtml } = require('../engine/fts5');
+const { toMatch, snippetHtml } = require('../engine/pg');
 const { EXPOSURE } = require('../document');
 const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
@@ -119,7 +119,7 @@ function canView(viewer, row, doc) {
  * QueryError for a malformed request.
  */
 function createSearcher({ config, store, engine, now: clock = () => Date.now() }) {
-    function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock() }) {
+    async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock() }) {
         if (text.length > 500) throw new QueryError('search.bad_query', 'q is longer than 500 characters');
         filters = filters || parseFilters(query, config);
         limit = Math.min(Math.max(parseInt(limit, 10) || config.query.defaultLimit, 1), config.query.maxLimit);
@@ -136,14 +136,14 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
         if (match) {
             if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
             if (after && after.now != null) refNow = after.now;
-            page = engine.search({ match, filters, viewer, limit, after, now: refNow });
+            page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
         } else {
             if (after && after.sort_at === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-            page = engine.browse({ filters, viewer, limit, after });
+            page = await engine.browse({ filters, viewer, limit, after });
         }
         const results = [];
         for (const h of page.hits) {
-            const found = store.byRid(h.rid);
+            const found = await store.byRid(h.rid);
             // Defence in depth: the engine already filtered; re-check against the stored row.
             if (!found || !canView(viewer, found.row, found.doc)) continue;
             results.push(projection(found.doc, found.row, match ? h.snip : undefined));
@@ -152,7 +152,7 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
             ? encodeCursor(match ? { k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash } : { k: 't', t: page.next.sort_at, i: page.next.rid, h: hash })
             : null;
         const body = { results, next_cursor: next };
-        if (facetKeys.length) body.facets = engine.facetCounts({ match, filters, viewer, keys: facetKeys });
+        if (facetKeys.length) body.facets = await engine.facetCounts({ match, filters, viewer, keys: facetKeys });
         return body;
     }
 
@@ -168,7 +168,7 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
  * (a per-actor limit, server/actor-limits.js) the viewer is counted as req.viewer before the handler runs.
  */
 function withViewer(auth, handler, limit = null) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         const ctx = req.ov;
         let viewer;
         try {
@@ -181,16 +181,16 @@ function withViewer(auth, handler, limit = null) {
         // personalised answer must never reach a shared cache.
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
-        const run = () => {
+        const run = async () => {
             try {
-                return handler(req, res, viewer);
+                return await handler(req, res, viewer);
             } catch (err) {
                 if (err instanceof QueryError) return http.sendProblem(res, 400, err.code, { detail: err.message, ctx });
                 return next(err);
             }
         };
         req.viewer = viewer;
-        return limit ? limit(req, res, run) : run();
+        return limit ? limit(req, res, run) : await run();
     };
 }
 
@@ -200,9 +200,9 @@ function queryRouter({ config, store, engine, auth, limits, searcher = createSea
 
     // Per-actor limits (server/actor-limits.js): queries and document reads take the defaults. Suggest
     // answers a search box as the person types, several requests a second, so it allows 300 a minute.
-    router.get('/api/v1/search', guarded(limits('search.query'), (req, res, viewer) => {
+    router.get('/api/v1/search', guarded(limits('search.query'), async (req, res, viewer) => {
         const q = one(req.query.q);
-        res.json(searcher.run({
+        res.json(await searcher.run({
             text: q === undefined ? '' : String(q),
             query: req.query,
             viewer,
@@ -212,27 +212,27 @@ function queryRouter({ config, store, engine, auth, limits, searcher = createSea
         }));
     }));
 
-    router.get('/api/v1/suggest', guarded(limits('search.suggest', { minute: 300, hour: 6000 }), (req, res, viewer) => {
+    router.get('/api/v1/suggest', guarded(limits('search.suggest', { minute: 300, hour: 6000 }), async (req, res, viewer) => {
         const text = String(one(req.query.q) || '');
         if (text.length > 100) throw new QueryError('search.bad_query', 'q is longer than 100 characters');
         const filters = parseFilters(req.query, config);
         const limit = Math.min(Math.max(parseInt(one(req.query.limit), 10) || 8, 1), 20);
         const match = toMatch(text, { maxTerms: 6, column: 'title', prefixLast: true });
         if (!match) return res.json({ suggestions: [] });
-        const rows = engine.suggest({ match, filters, viewer, limit });
+        const rows = await engine.suggest({ match, filters, viewer, limit });
         const suggestions = [];
         for (const r of rows) {
-            const found = store.byRid(r.rid);
+            const found = await store.byRid(r.rid);
             if (!found || !canView(viewer, found.row, found.doc)) continue;
             suggestions.push({ owner: found.doc.owner, type: found.doc.type, id: found.doc.id, title: found.doc.title, canonical_url: found.doc.canonical_url });
         }
         res.json({ suggestions });
     }));
 
-    router.get('/api/v1/documents/:owner/:type/:id', guarded(limits('search.document.read'), (req, res, viewer) => {
+    router.get('/api/v1/documents/:owner/:type/:id', guarded(limits('search.document.read'), async (req, res, viewer) => {
         const { owner, type, id } = req.params;
         if (!OWNER_RE.test(owner) || !TYPE_RE.test(type) || !ID_RE.test(id)) throw new QueryError('search.bad_identity', 'owner, type or id is malformed');
-        const found = store.get(owner, type, id);
+        const found = await store.get(owner, type, id);
         if (!found || !canView(viewer, found.row, found.doc)) {
             return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such document', ctx: req.ov });
         }

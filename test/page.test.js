@@ -15,10 +15,10 @@ const alice = ids.newId('user');
 
 t('boot', async () => {
     svc = await boot();
-    svc.store.apply(doc({ id: 'pub', title: 'Kestrel <script>alert(1)</script> nesting', summary: 'Kestrel "boxes" & more', body: 'kestrel kestrel', canonical_url: 'https://openvibe.wiki/p/kestrel?a=1&b=2' }));
-    svc.store.apply(doc({ id: 'prv', visibility: 'private', acl: { subjects: [alice] }, title: 'Kestrel private diary', body: 'kestrel' }));
-    svc.store.apply(doc({ id: 'drf', visibility: 'draft', title: 'Kestrel draft', body: 'kestrel' }));
-    for (let i = 0; i < 25; i++) svc.store.apply(doc({ id: `many${i}`, title: `Heron sighting ${i}`, body: 'heron' }));
+    await svc.store.apply(doc({ id: 'pub', title: 'Kestrel <script>alert(1)</script> nesting', summary: 'Kestrel "boxes" & more', body: 'kestrel kestrel', canonical_url: 'https://openvibe.wiki/p/kestrel?a=1&b=2' }));
+    await svc.store.apply(doc({ id: 'prv', visibility: 'private', acl: { subjects: [alice] }, title: 'Kestrel private diary', body: 'kestrel' }));
+    await svc.store.apply(doc({ id: 'drf', visibility: 'draft', title: 'Kestrel draft', body: 'kestrel' }));
+    for (let i = 0; i < 25; i++) await svc.store.apply(doc({ id: `many${i}`, title: `Heron sighting ${i}`, body: 'heron' }));
 });
 
 t('the front page is a search form, indexable, no-store, with a strict CSP', async () => {

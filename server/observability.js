@@ -19,63 +19,63 @@ const { EXPOSURE } = require('./document');
 
 const EXPOSURE_NAMES = Object.fromEntries(Object.entries(EXPOSURE).map(([name, n]) => [n, name]));
 
-function readers(db) {
-    const byExposure = db.prepare('SELECT exposure, COUNT(*) AS n FROM documents GROUP BY exposure');
-    const ftsPublic = db.prepare('SELECT COUNT(*) AS n FROM fts_public');
-    const ftsRestricted = db.prepare('SELECT COUNT(*) AS n FROM fts_restricted');
+function readers(db, engine) {
+    const byExposure = db.prepare('SELECT exposure, COUNT(*)::int AS n FROM documents GROUP BY exposure');
     return {
         /** { none, restricted, public_unlisted, public_listed }, every exposure present (0 when empty). */
-        documents() {
+        async documents() {
             const out = Object.fromEntries(Object.keys(EXPOSURE).map((k) => [k, 0]));
-            for (const r of byExposure.all()) out[EXPOSURE_NAMES[r.exposure] || 'none'] += r.n;
+            for (const r of await byExposure.all()) out[EXPOSURE_NAMES[r.exposure] || 'none'] += r.n;
             return out;
         },
-        indexed: () => ({ public: ftsPublic.get().n, restricted: ftsRestricted.get().n }),
+        indexed: async () => { const c = await engine.counts(); return { public: c.public_listed, restricted: c.restricted }; },
     };
 }
 
 function createSearchReadiness({ db, keys, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, release = null }) {
-    const read = readers(db);
+    const read = readers(db, engine);
     return createReadiness({
         service: 'search',
         release,
         checks: [
             {
                 name: 'db', required: true,
-                check: () => {
-                    db.prepare('SELECT rid FROM documents LIMIT 1').all();
-                    db.prepare('SELECT rowid FROM fts_public LIMIT 1').all();
-                    db.prepare('SELECT rowid FROM fts_restricted LIMIT 1').all();
-                    return true;
+                // A real round trip that names the store (postgresql / pglite), and the tables present.
+                check: async () => {
+                    const r = await db.ready();
+                    if (!r.ok) return r.error;
+                    await db.prepare('SELECT rid FROM documents LIMIT 1').all();
+                    await db.prepare('SELECT rid FROM search_fts LIMIT 1').all();
+                    return { ok: true, detail: r.detail };
                 },
             },
             { name: 'network_jwks', required: false, check: () => keys.loaded() || 'Network signing key not loaded yet: owner writes and signed-in queries cannot be verified' },
             {
                 name: 'index', required: false, cacheMs: 10_000,
-                check: () => {
-                    const docs = read.documents();
-                    const fts = read.indexed();
+                check: async () => {
+                    const docs = await read.documents();
+                    const fts = await read.indexed();
                     const detail = { indexed: fts, expected: { public: docs.public_listed, restricted: docs.restricted } };
                     const off = [];
-                    if (fts.public !== docs.public_listed) off.push(`fts_public has ${fts.public} entries for ${docs.public_listed} public_listed documents`);
-                    if (fts.restricted !== docs.restricted) off.push(`fts_restricted has ${fts.restricted} entries for ${docs.restricted} restricted documents`);
+                    if (fts.public !== docs.public_listed) off.push(`the public index has ${fts.public} entries for ${docs.public_listed} public_listed documents`);
+                    if (fts.restricted !== docs.restricted) off.push(`the restricted index has ${fts.restricted} entries for ${docs.restricted} restricted documents`);
                     return off.length ? { ok: false, error: `index out of step: ${off.join('; ')}`, detail } : { ok: true, detail };
                 },
             },
         ],
-        details: (body) => {
+        details: async (body) => {
             const dbOk = body.checks.db.status === 'ok';
             return {
                 engine: engine.name,
-                documents: dbOk ? store.counts() : null,
-                outbox: dbOk ? { pending: outbox.pending(), rejected: outbox.rejected(), relay: config.events.url ? (relay.running() ? 'running' : 'stopped') : 'off (EVENTS_URL unset)' } : null,
+                documents: dbOk ? await store.counts() : null,
+                outbox: dbOk ? { pending: await outbox.pending(), rejected: await outbox.rejected(), relay: config.events.url ? (relay.running() ? 'running' : 'stopped') : 'off (EVENTS_URL unset)' } : null,
                 webhook: config.events.webhookSecrets.length ? 'on' : 'off (SEARCH_EVENTS_SECRET unset)',
                 purge: dbOk && purges ? {
                     cdn: purges.cdnOn() ? (purger && purger.running() ? 'cloudflare' : 'cloudflare (stopped)') : 'off (CLOUDFLARE_PURGE_TOKEN unset)',
                     zones: config.purge.zones.length,
-                    ...purges.cdnCounts(),
+                    ...await purges.cdnCounts(),
                 } : null,
-                saved_searches: dbOk && saved ? saved.total() : null,
+                saved_searches: dbOk && saved ? await saved.total() : null,
                 freshness: config.freshness,
             };
         },
@@ -83,22 +83,22 @@ function createSearchReadiness({ db, keys, config, engine, store, outbox, relay,
 }
 
 /** Search gauges on the openvibe-shared/metrics registry. */
-function registerSearchGauges(registry, { db, outbox, purges = null }) {
-    const read = readers(db);
+function registerSearchGauges(registry, { db, engine, outbox, purges = null }) {
+    const read = readers(db, engine);
     registry.gauge({
         name: 'search_documents', help: 'Documents held, by exposure (public_listed and restricted are searchable; tombstones and drafts are none)', labelNames: ['exposure'],
-        collect: () => Object.entries(read.documents()).map(([exposure, value]) => ({ labels: { exposure }, value })),
+        collect: async () => Object.entries(await read.documents()).map(([exposure, value]) => ({ labels: { exposure }, value })),
     });
     registry.gauge({
         name: 'search_documents_indexed', help: 'Documents in the full-text index, by table', labelNames: ['index'],
-        collect: () => Object.entries(read.indexed()).map(([index, value]) => ({ labels: { index }, value })),
+        collect: async () => Object.entries(await read.indexed()).map(([index, value]) => ({ labels: { index }, value })),
     });
-    registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: () => outbox.pending() });
-    registry.gauge({ name: 'search_outbox_rejected', help: 'Events OpenVibe.Events refused for good', collect: () => outbox.rejected() });
+    registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: async () => await outbox.pending() });
+    registry.gauge({ name: 'search_outbox_rejected', help: 'Events OpenVibe.Events refused for good', collect: async () => await outbox.rejected() });
     if (purges) {
         registry.gauge({
             name: 'search_cdn_purges', help: 'Cloudflare cache purges of removed documents, by state', labelNames: ['state'],
-            collect: () => Object.entries(purges.cdnCounts()).map(([state, value]) => ({ labels: { state }, value })),
+            collect: async () => Object.entries(await purges.cdnCounts()).map(([state, value]) => ({ labels: { state }, value })),
         });
     }
 }

@@ -23,7 +23,7 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     // HTTP golden signals by route template, process metrics, release_info and the Search gauges;
     // GET /metrics answers direct loopback callers only (Track O).
     const metrics = instrument(app, { service: 'search', release: release.release });
-    registerSearchGauges(metrics.registry, { db, outbox, purges });
+    registerSearchGauges(metrics.registry, { db, engine, outbox, purges });
     app.use(http.middleware());
     // One W3C trace across services (openvibe-shared/trace): calls made while serving a request carry its traceparent.
     require('openvibe-shared/trace').install(app);

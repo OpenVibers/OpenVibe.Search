@@ -36,8 +36,8 @@ function createOutbox(db, { source, now = () => Date.now() }) {
     const insert = db.prepare('INSERT INTO event_outbox (event_id, event_type, envelope, created_at) VALUES (?, ?, ?, ?)');
 
     /** { event_type, subject, payload, visibility?, priority?, actor?, trace_id? } → envelope */
-    function enqueue({ event_type, subject, payload, visibility = 'internal', priority = 'important', actor, trace_id }) {
-        if (!db.inTransaction) throw new Error('outbox.enqueue() must run inside the transaction that makes the change');
+    async function enqueue({ event_type, subject, payload, visibility = 'internal', priority = 'important', actor, trace_id }) {
+        if (!db.inTransaction()) throw new Error('outbox.enqueue() must run inside the transaction that makes the change');
         const ms = now();
         const env = {
             event_id: ids.newId('event', ms),
@@ -54,7 +54,7 @@ function createOutbox(db, { source, now = () => Date.now() }) {
         if (trace_id && /^[0-9a-f]{32}$/.test(trace_id)) env.trace_id = trace_id;
         const v = validate('events.event-envelope@1', env);
         if (!v.valid) throw new Error(`outbox: invalid envelope for ${event_type}: ${v.errors.map(e => `${e.path} ${e.message}`).join('; ')}`);
-        insert.run(env.event_id, event_type, JSON.stringify(env), ms);
+        await insert.run(env.event_id, event_type, JSON.stringify(env), ms);
         return env;
     }
 
@@ -71,11 +71,11 @@ function createOutbox(db, { source, now = () => Date.now() }) {
 
     return {
         enqueue,
-        pending: () => q.pending.get().n,
-        rejected: () => q.rejectedCount.get().n,
+        pending: async () => (await q.pending.get()).n,
+        rejected: async () => (await q.rejectedCount.get()).n,
         /** Every envelope in order (tests and operators). */
-        all: () => q.list.all().map(r => JSON.parse(r.envelope)),
-        prune: (olderThanMs = 7 * 24 * 3600 * 1000) => q.prune.run(now() - olderThanMs).changes,
+        all: async () => (await q.list.all()).map(r => JSON.parse(r.envelope)),
+        prune: async (olderThanMs = 7 * 24 * 3600 * 1000) => (await q.prune.run(now() - olderThanMs)).changes,
         _q: q,
     };
 }
@@ -109,18 +109,18 @@ function createRelay({ outbox, eventsUrl, intervalMs = 2000, tokenClient, tokenO
         return { ok: res.ok, status: res.status, text };
     }
 
-    function mark(rows, fn) { db.transaction(() => { for (const r of rows) fn(r); })(); }
+    async function mark(rows, fn) { await db.tx(() => { for (const r of rows) fn(r); }); }
 
     async function publishRows(rows) {
         let r;
         try {
             r = await post(rows);
         } catch (err) {
-            mark(rows, row => q.failed.run(now() + BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)], String(err.message).slice(0, 500), row.seq));
+            await mark(rows, async row => await q.failed.run(now() + BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)], String(err.message).slice(0, 500), row.seq));
             return { sent: 0, failed: rows.length, rejected: 0 };
         }
         if (r.ok) {
-            mark(rows, row => q.sent.run(now(), row.seq));
+            await mark(rows, async row => await q.sent.run(now(), row.seq));
             return { sent: rows.length, failed: 0, rejected: 0 };
         }
         if (permanent(r.status) && rows.length > 1) {
@@ -134,11 +134,11 @@ function createRelay({ outbox, eventsUrl, intervalMs = 2000, tokenClient, tokenO
         }
         const msg = `${r.status} ${r.text.slice(0, 300)}`;
         if (permanent(r.status)) {
-            mark(rows, row => q.rejected.run(now(), msg, row.seq));
+            await mark(rows, async row => await q.rejected.run(now(), msg, row.seq));
             log.warn(`[outbox] event refused by Events: ${msg}`);
             return { sent: 0, failed: 0, rejected: rows.length };
         }
-        mark(rows, row => q.failed.run(now() + BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)], msg, row.seq));
+        await mark(rows, async row => await q.failed.run(now() + BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)], msg, row.seq));
         return { sent: 0, failed: rows.length, rejected: 0 };
     }
 
@@ -146,7 +146,7 @@ function createRelay({ outbox, eventsUrl, intervalMs = 2000, tokenClient, tokenO
         const total = { sent: 0, failed: 0, rejected: 0 };
         if (!eventsUrl || !tokens) return total;
         for (;;) {
-            const rows = q.due.all(now(), 50);
+            const rows = await q.due.all(now(), 50);
             if (!rows.length) break;
             const s = await publishRows(rows);
             total.sent += s.sent; total.failed += s.failed; total.rejected += s.rejected;

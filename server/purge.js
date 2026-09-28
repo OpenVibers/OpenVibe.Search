@@ -88,7 +88,7 @@ function createPurgeQueue(db, { config, now = () => Date.now() }) {
     const cdnOn = Boolean(config.cloudflareToken);
     const st = {
         insRemoval: db.prepare(`INSERT INTO removals (event_id, owner, type, id, revision, reason, previous_exposure, exposure, canonical_url, at)
-            VALUES (@event_id, @owner, @type, @id, @revision, @reason, @previous_exposure, @exposure, @canonical_url, @at)`),
+            VALUES (@event_id, @owner, @type, @id, @revision, @reason, @previous_exposure, @exposure, @canonical_url, @at) RETURNING seq`),
         insPurge: db.prepare(`INSERT INTO cdn_purges (removal_seq, zone_id, url, state, detail, created_at, done_at)
             VALUES (@removal_seq, @zone_id, @url, @state, @detail, @created_at, @done_at)
             ON CONFLICT (zone_id, url) WHERE state = 'pending' DO NOTHING`),
@@ -101,17 +101,17 @@ function createPurgeQueue(db, { config, now = () => Date.now() }) {
      * Record one removal (the payload of the search.document.removed event). Must run inside the
      * transaction that made the change, like the outbox.
      */
-    function record(eventId, p) {
-        if (!db.inTransaction) throw new Error('purge.record() must run inside the transaction that makes the change');
+    async function record(eventId, p) {
+        if (!db.inTransaction()) throw new Error('purge.record() must run inside the transaction that makes the change');
         const at = now();
-        const removalSeq = Number(st.insRemoval.run({
+        const removalSeq = Number((await st.insRemoval.run({
             event_id: eventId, owner: p.owner, type: p.type, id: p.id, revision: p.revision, reason: p.reason,
             previous_exposure: p.previous_exposure, exposure: p.exposure, canonical_url: p.canonical_url || null, at,
-        }).lastInsertRowid);
+        })).lastInsertRowid);
         if (!cdnOn || !p.canonical_url) return removalSeq;
         for (const url of purgeUrls(p.canonical_url, config.relatedPaths)) {
             const zoneId = zoneFor(url, config.zones);
-            st.insPurge.run({
+            await st.insPurge.run({
                 removal_seq: removalSeq, zone_id: zoneId, url,
                 state: zoneId ? 'pending' : 'skipped',
                 detail: zoneId ? null : 'no Cloudflare zone configured for this host (CLOUDFLARE_ZONE_IDS)',
@@ -122,8 +122,8 @@ function createPurgeQueue(db, { config, now = () => Date.now() }) {
     }
 
     /** The owner's removal feed, oldest first after a cursor. */
-    function ownerFeed(owner, { after = 0, limit = 200 } = {}) {
-        const rows = st.ownerFeed.all(owner, after, limit);
+    async function ownerFeed(owner, { after = 0, limit = 200 } = {}) {
+        const rows = await st.ownerFeed.all(owner, after, limit);
         return {
             removals: rows.map(r => ({
                 seq: r.seq, event_id: r.event_id, type: r.type, id: r.id, revision: r.revision, reason: r.reason,
@@ -134,13 +134,13 @@ function createPurgeQueue(db, { config, now = () => Date.now() }) {
         };
     }
 
-    function cdnCounts() {
+    async function cdnCounts() {
         const out = { pending: 0, purged: 0, failed: 0, skipped: 0 };
-        for (const r of st.cdnCounts.all()) out[r.state] = r.n;
+        for (const r of await st.cdnCounts.all()) out[r.state] = r.n;
         return out;
     }
 
-    return { record, ownerFeed, cdnCounts, purgesFor: (seq) => st.purgesFor.all(seq), cdnOn: () => cdnOn };
+    return { record, ownerFeed, cdnCounts, purgesFor: async (seq) => await st.purgesFor.all(seq), cdnOn: () => cdnOn };
 }
 
 /**
@@ -161,12 +161,12 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
 
     const clip = (s) => (token ? String(s || '').split(token).join('[token]') : String(s || '')).slice(0, DETAIL_MAX);
 
-    function mark(rows, fn) { db.transaction(() => { for (const r of rows) fn(r); })(); }
+    async function mark(rows, fn) { await db.tx(() => { for (const r of rows) fn(r); }); }
 
-    function retryOrFail(rows, detail) {
-        mark(rows, (r) => {
-            if (r.attempts + 1 >= MAX_ATTEMPTS) q.failed.run(clip(`gave up after ${MAX_ATTEMPTS} attempts: ${detail}`), now(), r.seq);
-            else q.retry.run(now() + BACKOFF_MS[Math.min(r.attempts, BACKOFF_MS.length - 1)], clip(detail), r.seq);
+    async function retryOrFail(rows, detail) {
+        await mark(rows, async (r) => {
+            if (r.attempts + 1 >= MAX_ATTEMPTS) await q.failed.run(clip(`gave up after ${MAX_ATTEMPTS} attempts: ${detail}`), now(), r.seq);
+            else await q.retry.run(now() + BACKOFF_MS[Math.min(r.attempts, BACKOFF_MS.length - 1)], clip(detail), r.seq);
         });
     }
 
@@ -188,17 +188,17 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
         try {
             r = await call(zoneId, rows.map(x => x.url));
         } catch (err) {
-            retryOrFail(rows, `network: ${err.message}`);
+            await retryOrFail(rows, `network: ${err.message}`);
             return { purged: 0, retrying: rows.length, failed: 0 };
         }
         const errors = (r.body && Array.isArray(r.body.errors) ? r.body.errors : []).map(e => `${e.code}: ${e.message}`).join('; ');
         if (r.status >= 200 && r.status < 300 && r.body && r.body.success === true) {
             const id = r.body.result && r.body.result.id ? `cloudflare purge ${r.body.result.id}` : 'purged';
-            mark(rows, x => q.purged.run(clip(id), now(), x.seq));
+            await mark(rows, async x => await q.purged.run(clip(id), now(), x.seq));
             return { purged: rows.length, retrying: 0, failed: 0 };
         }
         if (r.status === 429 || r.status >= 500 || r.status === 408) {
-            retryOrFail(rows, `HTTP ${r.status} ${errors}`);
+            await retryOrFail(rows, `HTTP ${r.status} ${errors}`);
             return { purged: 0, retrying: rows.length, failed: 0 };
         }
         // Refused (bad URL, token without purge permission, unknown zone): isolate, then fail.
@@ -210,7 +210,7 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
             }
             return total;
         }
-        mark(rows, x => q.failed.run(clip(`HTTP ${r.status} ${errors || 'refused'}`), now(), x.seq));
+        await mark(rows, async x => await q.failed.run(clip(`HTTP ${r.status} ${errors || 'refused'}`), now(), x.seq));
         log.warn(`[purge] Cloudflare refused a purge: HTTP ${r.status} ${clip(errors)}`);
         return { purged: 0, retrying: 0, failed: rows.length };
     }
@@ -218,7 +218,7 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
     async function doFlush() {
         const total = { purged: 0, retrying: 0, failed: 0 };
         if (!token) return total;
-        const rows = q.due.all(now(), 200);
+        const rows = await q.due.all(now(), 200);
         const byZone = new Map();
         for (const r of rows) {
             if (!byZone.has(r.zone_id)) byZone.set(r.zone_id, []);

@@ -39,7 +39,7 @@ t('/api/ready: every check reports; db is the only required one; the index agree
         assert.ok(Date.parse(c.checked_at));
     }
     assert.deepStrictEqual(r.body.checks.index.detail, { indexed: { public: 2, restricted: 1 }, expected: { public: 2, restricted: 1 } });
-    assert.strictEqual(r.body.engine, 'sqlite-fts5');
+    assert.strictEqual(r.body.engine, 'postgresql-fts');
     assert.strictEqual(r.body.documents.total, 4);
 });
 
@@ -84,12 +84,12 @@ t('a full-text index out of step with the documents degrades /api/ready (still 2
     svc = await boot();                              // fresh: the index check has no cached result
     await put(doc());
     await put(doc());
-    svc.db.prepare('DELETE FROM fts_public WHERE rowid = (SELECT MIN(rowid) FROM fts_public)').run();
+    await svc.db.prepare('DELETE FROM search_fts WHERE rid = (SELECT MIN(rid) FROM search_fts WHERE audience = 3)').run();
     const r = await request(svc.base, 'GET', '/api/ready');
     assert.strictEqual(r.status, 200, r.text);
     assert.strictEqual(r.body.status, 'degraded');
     assert.deepStrictEqual(r.body.degraded, ['index']);
-    assert.match(r.body.checks.index.error, /fts_public has 1 entries for 2 public_listed documents/);
+    assert.match(r.body.checks.index.error, /the public index has 1 entries for 2 public_listed documents/);
 });
 
 t('a broken database makes the service unready (503); /metrics still answers', async () => {

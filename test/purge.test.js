@@ -55,9 +55,9 @@ t('inert without CLOUDFLARE_PURGE_TOKEN: removals are recorded for owners, nothi
     const svc = await boot({ env: { CLOUDFLARE_ZONE_IDS: ZONES }, fetchImpl: cf.fetchImpl });
     try {
         const d = doc({ id: 'inert1', canonical_url: 'https://openvibe.wiki/p/inert1' });
-        svc.store.apply(d);
-        svc.store.apply(hide(d));
-        assert.deepStrictEqual(svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 0 });
+        await svc.store.apply(d);
+        await svc.store.apply(hide(d));
+        assert.deepStrictEqual(await svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 0 });
         assert.deepStrictEqual(await svc.purger.flush(), { purged: 0, retrying: 0, failed: 0 });
         assert.strictEqual(svc.purger.running(), false);
         assert.strictEqual(cf.calls.length, 0);
@@ -71,7 +71,7 @@ t('inert without CLOUDFLARE_PURGE_TOKEN: removals are recorded for owners, nothi
         assert.strictEqual(r.previous_exposure, 'public_listed');
         assert.strictEqual(r.exposure, 'restricted');
         // The removal row and the outbox event are the same removal.
-        const ev = svc.outbox.all().find(e => e.event_type === 'search.document.removed' && e.payload.id === 'inert1');
+        const ev = (await svc.outbox.all()).find(e => e.event_type === 'search.document.removed' && e.payload.id === 'inert1');
         assert.strictEqual(r.event_id, ev.event_id);
         const ready = await request(svc.base, 'GET', '/api/ready');
         assert.match(JSON.stringify(ready.body), /CLOUDFLARE_PURGE_TOKEN unset/);
@@ -82,11 +82,11 @@ t('owner removal feed: owner token only, own owner only, cursor paging, restrict
     const svc = await boot();
     try {
         const members = doc({ id: 'mem1', visibility: 'members', acl: { groups: ['g1'] } });
-        svc.store.apply(members);
-        svc.store.remove('wiki', 'page', 'mem1');
+        await svc.store.apply(members);
+        await svc.store.remove('wiki', 'page', 'mem1');
         const pub = doc({ id: 'pub2', canonical_url: 'https://openvibe.wiki/p/pub2' });
-        svc.store.apply(pub);
-        svc.store.remove('wiki', 'page', 'pub2');
+        await svc.store.apply(pub);
+        await svc.store.remove('wiki', 'page', 'pub2');
         assert.strictEqual((await request(svc.base, 'GET', '/api/v1/owners/wiki/removals')).status, 401);
         assert.strictEqual((await request(svc.base, 'GET', '/api/v1/owners/wiki/removals', { token: BLOG })).status, 403);
         const p1 = await request(svc.base, 'GET', '/api/v1/owners/wiki/removals?limit=1', { token: WIKI });
@@ -105,12 +105,12 @@ t('with a token: the formerly public URL and its sitemap are purged in one call 
         const a = doc({ id: 'cf1', canonical_url: 'https://openvibe.wiki/p/cf1' });
         const b = doc({ id: 'cf2', canonical_url: 'https://openvibe.wiki/p/cf2' });
         const c = doc({ owner: 'wiki', id: 'cf3', canonical_url: 'https://docs.openvibe.network/cf3' });
-        for (const d of [a, b, c]) svc.store.apply(d);
-        svc.store.apply(hide(a));
-        svc.store.remove('wiki', 'page', 'cf2');
-        svc.store.apply({ ...c, revision: 2, publication_state: 'retracted' });
+        for (const d of [a, b, c]) await svc.store.apply(d);
+        await svc.store.apply(hide(a));
+        await svc.store.remove('wiki', 'page', 'cf2');
+        await svc.store.apply({ ...c, revision: 2, publication_state: 'retracted' });
         // Two removals on openvibe.wiki share one pending sitemap purge.
-        assert.deepStrictEqual(svc.purges.cdnCounts(), { pending: 5, purged: 0, failed: 0, skipped: 0 });
+        assert.deepStrictEqual(await svc.purges.cdnCounts(), { pending: 5, purged: 0, failed: 0, skipped: 0 });
 
         const s = await svc.purger.flush();
         assert.deepStrictEqual(s, { purged: 5, retrying: 0, failed: 0 });
@@ -126,7 +126,7 @@ t('with a token: the formerly public URL and its sitemap are purged in one call 
         // Done rows are never sent again; the token is never stored.
         assert.deepStrictEqual(await svc.purger.flush(), { purged: 0, retrying: 0, failed: 0 });
         assert.strictEqual(cf.calls.length, 2);
-        const dump = JSON.stringify(svc.db.prepare('SELECT * FROM cdn_purges').all()) + JSON.stringify(svc.db.prepare('SELECT * FROM removals').all());
+        const dump = JSON.stringify(await svc.db.prepare('SELECT * FROM cdn_purges').all()) + JSON.stringify(await svc.db.prepare('SELECT * FROM removals').all());
         assert.ok(!dump.includes(TOKEN));
         assert.strictEqual(svc.purger.running(), true);
     } finally { await svc.stop(); }
@@ -137,12 +137,12 @@ t('an index change that does not lower exposure, or a URL that was never public,
     const svc = await boot({ env: { CLOUDFLARE_PURGE_TOKEN: TOKEN, CLOUDFLARE_ZONE_IDS: ZONES }, fetchImpl: cf.fetchImpl });
     try {
         const d = doc({ id: 'keep', canonical_url: 'https://openvibe.wiki/p/keep' });
-        svc.store.apply(d);
-        svc.store.apply({ ...d, revision: 2, title: 'New title' });
+        await svc.store.apply(d);
+        await svc.store.apply({ ...d, revision: 2, title: 'New title' });
         const m = doc({ id: 'mem', visibility: 'members', acl: { groups: ['g'] }, canonical_url: 'https://openvibe.wiki/p/mem' });
-        svc.store.apply(m);
-        svc.store.remove('wiki', 'page', 'mem');
-        assert.deepStrictEqual(svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 0 });
+        await svc.store.apply(m);
+        await svc.store.remove('wiki', 'page', 'mem');
+        assert.deepStrictEqual(await svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 0 });
         await svc.purger.flush();
         assert.strictEqual(cf.calls.length, 0);
     } finally { await svc.stop(); }
@@ -153,12 +153,12 @@ t('a host with no configured zone is recorded as skipped, not sent', async () =>
     const svc = await boot({ env: { CLOUDFLARE_PURGE_TOKEN: TOKEN, CLOUDFLARE_ZONE_IDS: ZONES }, fetchImpl: cf.fetchImpl });
     try {
         const d = doc({ id: 'elsewhere', canonical_url: 'https://example.org/x' });
-        svc.store.apply(d);
-        svc.store.remove('wiki', 'page', 'elsewhere');
-        assert.deepStrictEqual(svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 2 });
+        await svc.store.apply(d);
+        await svc.store.remove('wiki', 'page', 'elsewhere');
+        assert.deepStrictEqual(await svc.purges.cdnCounts(), { pending: 0, purged: 0, failed: 0, skipped: 2 });
         await svc.purger.flush();
         assert.strictEqual(cf.calls.length, 0);
-        const row = svc.db.prepare("SELECT detail FROM cdn_purges WHERE url = 'https://example.org/x'").get();
+        const row = await svc.db.prepare("SELECT detail FROM cdn_purges WHERE url = 'https://example.org/x'").get();
         assert.match(row.detail, /no Cloudflare zone/);
     } finally { await svc.stop(); }
 });
@@ -174,9 +174,9 @@ t('429, 5xx and network errors back off and retry; after MAX_ATTEMPTS the purge 
     const svc = await boot({ env: { CLOUDFLARE_PURGE_TOKEN: TOKEN, CLOUDFLARE_ZONE_IDS: ZONES, CLOUDFLARE_PURGE_RELATED_PATHS: 'none' }, fetchImpl: cf.fetchImpl, now: () => clock });
     try {
         const d = doc({ id: 'retry1', canonical_url: 'https://openvibe.wiki/p/retry1' });
-        svc.store.apply(d);
-        svc.store.remove('wiki', 'page', 'retry1');
-        const n = svc.purges.cdnCounts().pending;
+        await svc.store.apply(d);
+        await svc.store.remove('wiki', 'page', 'retry1');
+        const n = (await svc.purges.cdnCounts()).pending;
         assert.strictEqual(n, 1, 'related paths off (none)');
         assert.deepStrictEqual(await svc.purger.flush(), { purged: 0, retrying: n, failed: 0 });
         // Not due yet: nothing is sent before the backoff elapses.
@@ -189,10 +189,10 @@ t('429, 5xx and network errors back off and retry; after MAX_ATTEMPTS the purge 
         // A URL that never gets through fails after MAX_ATTEMPTS.
         mode = 'down';
         const e = doc({ id: 'retry2', canonical_url: 'https://openvibe.wiki/p/retry2' });
-        svc.store.apply(e);
-        svc.store.remove('wiki', 'page', 'retry2');
+        await svc.store.apply(e);
+        await svc.store.remove('wiki', 'page', 'retry2');
         for (let i = 0; i < MAX_ATTEMPTS; i++) { clock += 2 * 3600 * 1000; await svc.purger.flush(); }
-        const rows = svc.db.prepare("SELECT state, attempts, detail FROM cdn_purges WHERE url LIKE '%retry2'").all();
+        const rows = await svc.db.prepare("SELECT state, attempts, detail FROM cdn_purges WHERE url ILIKE '%retry2'").all();
         assert.deepStrictEqual(rows.map(r => [r.state, r.attempts]), [['failed', MAX_ATTEMPTS]]);
         assert.match(rows[0].detail, /gave up after/);
     } finally { await svc.stop(); }
@@ -205,12 +205,12 @@ t('a refused batch is retried one URL at a time: only the refused URL fails', as
     const svc = await boot({ env: { CLOUDFLARE_PURGE_TOKEN: TOKEN, CLOUDFLARE_ZONE_IDS: ZONES, CLOUDFLARE_PURGE_RELATED_PATHS: 'none' }, fetchImpl: cf.fetchImpl });
     try {
         for (const id of ['good1', 'refused', 'good2']) {
-            svc.store.apply(doc({ id, canonical_url: `https://openvibe.wiki/p/${id}` }));
-            svc.store.remove('wiki', 'page', id);
+            await svc.store.apply(doc({ id, canonical_url: `https://openvibe.wiki/p/${id}` }));
+            await svc.store.remove('wiki', 'page', id);
         }
         const s = await svc.purger.flush();
         assert.deepStrictEqual(s, { purged: 2, retrying: 0, failed: 1 });
-        const failed = svc.db.prepare("SELECT url, detail FROM cdn_purges WHERE state = 'failed'").all();
+        const failed = await svc.db.prepare("SELECT url, detail FROM cdn_purges WHERE state = 'failed'").all();
         assert.deepStrictEqual(failed.map(r => r.url), ['https://openvibe.wiki/p/refused']);
         assert.match(failed[0].detail, /HTTP 400 1012/);
     } finally { await svc.stop(); }
@@ -224,10 +224,10 @@ t('a token Cloudflare rejects (403) fails the purge without retrying forever and
     const { createPurger } = require('../server/purge');
     const purger = createPurger({ db: svc.db, config: svc.config.purge, fetchImpl: cf.fetchImpl, log: { warn: (m) => logged.push(m), log() {}, error() {} } });
     try {
-        svc.store.apply(doc({ id: 'auth1', canonical_url: 'https://openvibe.wiki/p/auth1' }));
-        svc.store.remove('wiki', 'page', 'auth1');
+        await svc.store.apply(doc({ id: 'auth1', canonical_url: 'https://openvibe.wiki/p/auth1' }));
+        await svc.store.remove('wiki', 'page', 'auth1');
         assert.deepStrictEqual(await purger.flush(), { purged: 0, retrying: 0, failed: 1 });
-        const row = svc.db.prepare("SELECT state, detail FROM cdn_purges WHERE url LIKE '%auth1'").get();
+        const row = await svc.db.prepare("SELECT state, detail FROM cdn_purges WHERE url ILIKE '%auth1'").get();
         assert.strictEqual(row.state, 'failed');
         assert.ok(!row.detail.includes(TOKEN) && row.detail.includes('[token]'));
         assert.ok(logged.length && logged.every(m => !m.includes(TOKEN)));

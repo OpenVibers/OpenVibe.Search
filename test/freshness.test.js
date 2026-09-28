@@ -6,7 +6,7 @@
  */
 const assert = require('assert');
 const { boot, request, doc, suite } = require('./helpers');
-const { freshnessBoost } = require('../server/engine/fts5');
+const { freshnessBoost } = require('../server/engine/pg');
 
 const t = suite('freshness');
 const NOW = Date.parse('2026-09-23T12:00:00Z');
@@ -31,9 +31,9 @@ async function corpus(env = {}) {
     const svc = await boot({ env, now: () => clock });
     // Same text, same length: bm25 ties, so only freshness separates them. The old one is indexed
     // first (lower rid), so without freshness it would come first.
-    svc.store.apply(doc({ id: 'old', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(400), updated_at: daysAgo(400) }));
-    svc.store.apply(doc({ id: 'mid', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(20), updated_at: daysAgo(20) }));
-    svc.store.apply(doc({ id: 'new', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(1), updated_at: daysAgo(1) }));
+    await svc.store.apply(doc({ id: 'old', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(400), updated_at: daysAgo(400) }));
+    await svc.store.apply(doc({ id: 'mid', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(20), updated_at: daysAgo(20) }));
+    await svc.store.apply(doc({ id: 'new', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(1), updated_at: daysAgo(1) }));
     return { svc, setClock: (c) => { clock = c; } };
 }
 
@@ -58,8 +58,8 @@ t('relevance still wins: an old title match outranks a fresh passing mention', a
     let clock = NOW;
     const svc = await boot({ now: () => clock });
     try {
-        svc.store.apply(doc({ id: 'fresh-mention', title: 'Weekly notes', summary: 'Many topics this week.', body: `${'filler words about other things '.repeat(40)} glacier`, published_at: daysAgo(0) }));
-        svc.store.apply(doc({ id: 'old-title', title: 'Glacier glacier retreat', summary: 'The glacier retreat, measured.', body: 'glacier data', published_at: daysAgo(700) }));
+        await svc.store.apply(doc({ id: 'fresh-mention', title: 'Weekly notes', summary: 'Many topics this week.', body: `${'filler words about other things '.repeat(40)} glacier`, published_at: daysAgo(0) }));
+        await svc.store.apply(doc({ id: 'old-title', title: 'Glacier glacier retreat', summary: 'The glacier retreat, measured.', body: 'glacier data', published_at: daysAgo(700) }));
         const r = await request(svc.base, 'GET', '/api/v1/search?q=glacier');
         assert.deepStrictEqual(r.body.results.map(x => x.id), ['old-title', 'fresh-mention']);
     } finally { await svc.stop(); }

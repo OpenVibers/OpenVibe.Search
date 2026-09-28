@@ -175,7 +175,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             .send('User-agent: *\nAllow: /$\nAllow: /updates\nDisallow: /?\nDisallow: /api/\nDisallow: /internal/\n');
     });
 
-    router.get('/', (req, res, next) => {
+    router.get('/', async (req, res, next) => {
         const wantsHtml = /\btext\/html\b/.test(String(req.get('accept') || ''));
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('Vary', 'Accept, Cookie');
@@ -202,7 +202,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         let status = 200;
         if (searching) {
             try {
-                const out = searcher.run({ text: q, query: { ...(owner ? { owner } : {}), ...(type ? { type } : {}) }, viewer: viewer || ANONYMOUS, cursor });
+                const out = await searcher.run({ text: q, query: { ...(owner ? { owner } : {}), ...(type ? { type } : {}) }, viewer: viewer || ANONYMOUS, cursor });
                 body = out.results.length
                     ? resultsHtml(out.results)
                     : `<p class="empty">${cursor ? 'No more results.' : 'Nothing found. The index is young: services add documents as they publish them.'}</p>`;

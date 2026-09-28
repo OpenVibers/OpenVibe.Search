@@ -9,7 +9,7 @@
  */
 const { load } = require('./config');
 const { openDb } = require('./db');
-const { createEngine } = require('./engine/fts5');
+const { createEngine } = require('./engine/pg');
 const { createStore } = require('./store');
 const { createOutbox, createRelay } = require('./events/outbox');
 const { createKeyStore, createAuth } = require('./auth');
@@ -17,10 +17,14 @@ const { createPurgeQueue, createPurger } = require('./purge');
 const { createSavedSearches } = require('./saved');
 const { createApp } = require('./app');
 
-async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, log = console, listen = true } = {}) {
+async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, log = console, listen = true } = {}) {
     config = config || load();
-    const db = openDb(config.dbPath);
+    // PostgreSQL (ADR-035): opened and migrated here unless the caller (a test) hands in a migrated handle.
+    const db = givenDb || await openDb(config, { log });
     const engine = createEngine(db, { freshness: config.freshness });
+    // The index is derived from documents: rebuilt when it disagrees (after the one-time import from SQLite).
+    const rebuilt = await engine.reconcile();
+    if (rebuilt.rebuilt) log.log(`[search] full-text index rebuilt: ${rebuilt.rebuilt} document(s)`);
     const outbox = createOutbox(db, { source: config.serviceId, now });
     const purges = createPurgeQueue(db, { config: config.purge, now });
     const purger = createPurger({ db, config: config.purge, fetchImpl, log, now });
@@ -38,7 +42,7 @@ async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fe
     const keyLoaded = keys.start().catch(() => null);
     relay.start();
     purger.start();
-    const pruneTimer = setInterval(() => { try { outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
+    const pruneTimer = setInterval(async () => { try { await outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
 
     let server = null;
@@ -59,7 +63,7 @@ async function start({ config, now = () => Date.now(), fetchImpl = globalThis.fe
             server.closeAllConnections?.();
             await new Promise(resolve => server.close(() => resolve()));
         }
-        db.close();
+        if (!givenDb) await db.close();
     }
 
     return { config, db, engine, store, outbox, relay, purges, purger, saved, keys, keyLoaded, auth, app, server, close };

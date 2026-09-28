@@ -36,12 +36,12 @@ t('outbox envelopes are valid events.event-envelope@1 and are enqueued only with
         await request(svc.base, 'PUT', `/api/v1/documents/wiki/page/${d.id}`, { token: WIKI, body: d });
         await request(svc.base, 'PUT', `/api/v1/documents/wiki/page/${d.id}`, { token: WIKI, body: { ...d, revision: 0 } }); // stale: no event
         await request(svc.base, 'DELETE', `/api/v1/documents/wiki/page/${d.id}?revision=2`, { token: WIKI });
-        const all = svc.outbox.all();
+        const all = await svc.outbox.all();
         assert.deepStrictEqual(all.map(e => e.event_type), ['search.document.indexed', 'search.document.removed']);
         for (const e of all) assert.ok(validate('events.event-envelope@1', e).valid, JSON.stringify(validate('events.event-envelope@1', e).errors));
         assert.strictEqual(all[1].subject.id, `wiki/page/${d.id}`);
         assert.strictEqual(all[1].subject.revision, 2);
-        assert.throws(() => svc.outbox.enqueue({ event_type: 'search.document.indexed', subject: { type: 'document', id: 'x' } }), /inside the transaction/);
+        await assert.rejects(async () => await svc.outbox.enqueue({ event_type: 'search.document.indexed', subject: { type: 'document', id: 'x' } }), /inside the transaction/);
     } finally {
         await svc.stop();
     }
@@ -55,8 +55,8 @@ t('the relay publishes pending events with the service token and marks them sent
         await request(svc.base, 'PUT', `/api/v1/documents/wiki/page/${d.id}`, { token: WIKI, body: d });
         await request(svc.base, 'DELETE', `/api/v1/documents/wiki/page/${d.id}?revision=2`, { token: WIKI });
         // a write kicks the relay; a flush already in flight may predate the second row
-        for (let i = 0; i < 5 && svc.outbox.pending(); i++) await svc.relay.flush();
-        assert.strictEqual(svc.outbox.pending(), 0);
+        for (let i = 0; i < 5 && await svc.outbox.pending(); i++) await svc.relay.flush();
+        assert.strictEqual(await svc.outbox.pending(), 0);
         const published = events.calls.flatMap(c => (c.body.events ? c.body.events : [c.body]));
         assert.deepStrictEqual(published.map(e => e.event_type).sort(), ['search.document.indexed', 'search.document.removed']);
         assert.ok(events.calls.every(c => c.headers.authorization === 'Bearer relay-token'));
@@ -79,13 +79,13 @@ t('an unreachable or failing Events keeps rows pending for retry; a refused row 
         await request(svc.base, 'PUT', '/api/v1/documents/wiki/page/fine', { token: WIKI, body: doc({ id: 'fine' }) });
         await svc.relay.flush();
         await svc.relay.flush();
-        assert.strictEqual(svc.outbox.pending(), 2, 'kept for retry');
+        assert.strictEqual(await svc.outbox.pending(), 2, 'kept for retry');
         mode = 'up';
-        svc.db.prepare('UPDATE event_outbox SET next_attempt_at = 0').run();
+        await svc.db.prepare('UPDATE event_outbox SET next_attempt_at = 0').run();
         await svc.relay.flush();
         await svc.relay.flush();
-        assert.strictEqual(svc.outbox.pending(), 0);
-        assert.strictEqual(svc.outbox.rejected(), 1, 'the poison row is set aside');
+        assert.strictEqual(await svc.outbox.pending(), 0);
+        assert.strictEqual(await svc.outbox.rejected(), 1, 'the poison row is set aside');
     } finally {
         await svc.stop();
         await events.close();
@@ -97,7 +97,7 @@ t('readiness reports the outbox and the webhook state', async () => {
     try {
         const r = await request(svc.base, 'GET', '/api/ready');
         assert.strictEqual(r.status, 200);
-        assert.strictEqual(r.body.engine, 'sqlite-fts5');
+        assert.strictEqual(r.body.engine, 'postgresql-fts');
         assert.match(r.body.outbox.relay, /^off/);
         assert.strictEqual(r.body.webhook, 'on');
     } finally {
