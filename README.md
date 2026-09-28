@@ -204,6 +204,25 @@ Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pi
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
 `openvibe-contracts-check --service search`.
 
+### Per-actor limits
+
+Every API route also limits who calls it, after its credential and before any work
+([server/actor-limits.js](server/actor-limits.js), openvibe-sdk/limits, roadmap WS-R task 4): the
+service principal on owner routes; on query and saved-search routes the person (their own token, or
+the `X-OV-Subject` a delegating service vouches for), else the address. A service querying for its
+signed-out visitors is not counted (it speaks for all of them). Past a limit: `429` problem+json
+`rate_limited` with `Retry-After`, one `[limits]` log line and `search_rate_limited_total{limit,window}`.
+
+| Route | Per caller |
+|---|---|
+| Queries, direct gets, owner reconciliation reads, saved-search reads and runs | `SEARCH_LIMITS_MINUTE` / `SEARCH_LIMITS_HOUR` (120 a minute, 3000 an hour) |
+| `GET /api/v1/suggest` | 300 / 6000 (a search box as the person types) |
+| `PUT/DELETE /api/v1/documents/…` | 120 / 1200 (a catalog sync is a burst; bulk content comes through Events) |
+| Saved-search create, delete | 30 / 300 |
+
+Never limited: the signed Events deliveries (`POST /internal/events`), `/api/health`, `/api/ready`,
+`/release.json`, `/metrics`; the HTML page keeps nginx's address limits. `test/actor-limits.test.js`.
+
 ## Acceptance (tests)
 
 - a private or draft document is never returned to an unauthorized query — hits, snippets, facet
@@ -222,6 +241,8 @@ Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pi
 - saved searches: signed-in only, own only, run-time ACL, Origin check for cookies, limits
   (`test/saved-searches.test.js`)
 - the search page: public only, escaped, no-store, noindex results, paging (`test/page.test.js`)
+- per-actor limits: 429 `rate_limited` with Retry-After per principal, person or address, another
+  caller unaffected, deliveries and health never limited (`test/actor-limits.test.js`)
 
 Not yet demonstrated: a document with content indexed end to end in production. The Events
 subscription delivered 20 wiki events; the 10 upserts were rejected (`owner_not_accepted`, since

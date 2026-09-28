@@ -42,9 +42,14 @@ function outcomeResponse(res, ctx, r) {
     return res.json(r);
 }
 
-function documentsRouter({ store, auth, db, relay, purges }) {
+function documentsRouter({ store, auth, db, relay, purges, limits }) {
     const router = express.Router();
     const guard = auth.requireCap(CAPS.write);
+    // Per-actor limits (server/actor-limits.js), by service principal; reconciliation reads take the
+    // defaults. A direct indexer syncs its catalog in a burst (Tools: every tool on a first run), so
+    // indexing keeps the default minute, but the hour is tighter: bulk content comes through Events
+    // (search.index_document.*), not one PUT at a time.
+    const index = { minute: 120, hour: 1200 };
 
     function ownerCheck(req, res) {
         const ctx = req.ov;
@@ -59,7 +64,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         return true;
     }
 
-    router.put('/api/v1/documents/:owner/:type/:id', guard, (req, res) => {
+    router.put('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.index', index), (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
@@ -77,7 +82,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         return outcomeResponse(res, ctx, r);
     });
 
-    router.delete('/api/v1/documents/:owner/:type/:id', guard, (req, res) => {
+    router.delete('/api/v1/documents/:owner/:type/:id', guard, limits('search.document.remove', index), (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         let revision = null;
@@ -90,7 +95,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         return outcomeResponse(res, ctx, r);
     });
 
-    router.get('/api/v1/owners/:owner/documents', guard, (req, res) => {
+    router.get('/api/v1/owners/:owner/documents', guard, limits('search.owner.documents'), (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         const type = req.query.type ? String(req.query.type) : null;
@@ -100,7 +105,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         res.json({ owner: req.params.owner, ...store.ownerPage(req.params.owner, { type, after, limit }) });
     });
 
-    router.get('/api/v1/owners/:owner/documents/:type/:id', guard, (req, res) => {
+    router.get('/api/v1/owners/:owner/documents/:type/:id', guard, limits('search.owner.document'), (req, res) => {
         const ctx = req.ov;
         if (!ownerCheck(req, res)) return;
         const found = store.get(req.params.owner, req.params.type, req.params.id);
@@ -115,7 +120,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         });
     });
 
-    router.get('/api/v1/owners/:owner/rejections', guard, (req, res) => {
+    router.get('/api/v1/owners/:owner/rejections', guard, limits('search.owner.rejections'), (req, res) => {
         if (!ownerCheck(req, res)) return;
         const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
         const rows = db.prepare('SELECT * FROM ingest_rejections WHERE owner = ? AND seq > ? ORDER BY seq LIMIT 200').all(req.params.owner, after);
@@ -128,7 +133,7 @@ function documentsRouter({ store, auth, db, relay, purges }) {
         });
     });
 
-    router.get('/api/v1/owners/:owner/removals', guard, (req, res) => {
+    router.get('/api/v1/owners/:owner/removals', guard, limits('search.owner.removals'), (req, res) => {
         if (!ownerCheck(req, res)) return;
         const after = /^\d{1,15}$/.test(String(req.query.after || '')) ? Number(req.query.after) : 0;
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);

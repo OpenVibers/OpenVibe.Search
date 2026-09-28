@@ -100,6 +100,14 @@ function load(env = process.env) {
             maxPerSubject: Math.max(1, int(env.SEARCH_SAVED_MAX_PER_SUBJECT, 50)),
         },
 
+        // Per-actor limits at the API routes (server/actor-limits.js, roadmap WS-R task 4): the requests
+        // one caller may make to a read route per minute and per hour. Indexing, suggest and saved-search
+        // changes set their own numbers where they are mounted.
+        limits: {
+            minute: Math.max(1, int(env.SEARCH_LIMITS_MINUTE, 120)),
+            hour: Math.max(1, int(env.SEARCH_LIMITS_HOUR, 3000)),
+        },
+
         // Removal purge queue (server/purge.js). Every removal is recorded for owners; the
         // Cloudflare purge of a formerly public URL runs only when the token is set.
         purge: {

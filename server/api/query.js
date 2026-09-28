@@ -163,8 +163,11 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
     };
 }
 
-/** Wraps a handler: resolves the viewer (AuthError → problem), no-store, QueryError → 400. */
-function withViewer(auth, handler) {
+/**
+ * Wraps a handler: resolves the viewer (AuthError → problem), no-store, QueryError → 400. With `limit`
+ * (a per-actor limit, server/actor-limits.js) the viewer is counted as req.viewer before the handler runs.
+ */
+function withViewer(auth, handler, limit = null) {
     return (req, res, next) => {
         const ctx = req.ov;
         let viewer;
@@ -178,20 +181,26 @@ function withViewer(auth, handler) {
         // personalised answer must never reach a shared cache.
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
-        try {
-            return handler(req, res, viewer);
-        } catch (err) {
-            if (err instanceof QueryError) return http.sendProblem(res, 400, err.code, { detail: err.message, ctx });
-            return next(err);
-        }
+        const run = () => {
+            try {
+                return handler(req, res, viewer);
+            } catch (err) {
+                if (err instanceof QueryError) return http.sendProblem(res, 400, err.code, { detail: err.message, ctx });
+                return next(err);
+            }
+        };
+        req.viewer = viewer;
+        return limit ? limit(req, res, run) : run();
     };
 }
 
-function queryRouter({ config, store, engine, auth, searcher = createSearcher({ config, store, engine }) }) {
+function queryRouter({ config, store, engine, auth, limits, searcher = createSearcher({ config, store, engine }) }) {
     const router = express.Router();
-    const guarded = (h) => withViewer(auth, h);
+    const guarded = (limit, h) => withViewer(auth, h, limit);
 
-    router.get('/api/v1/search', guarded((req, res, viewer) => {
+    // Per-actor limits (server/actor-limits.js): queries and document reads take the defaults. Suggest
+    // answers a search box as the person types, several requests a second, so it allows 300 a minute.
+    router.get('/api/v1/search', guarded(limits('search.query'), (req, res, viewer) => {
         const q = one(req.query.q);
         res.json(searcher.run({
             text: q === undefined ? '' : String(q),
@@ -203,7 +212,7 @@ function queryRouter({ config, store, engine, auth, searcher = createSearcher({ 
         }));
     }));
 
-    router.get('/api/v1/suggest', guarded((req, res, viewer) => {
+    router.get('/api/v1/suggest', guarded(limits('search.suggest', { minute: 300, hour: 6000 }), (req, res, viewer) => {
         const text = String(one(req.query.q) || '');
         if (text.length > 100) throw new QueryError('search.bad_query', 'q is longer than 100 characters');
         const filters = parseFilters(req.query, config);
@@ -220,7 +229,7 @@ function queryRouter({ config, store, engine, auth, searcher = createSearcher({ 
         res.json({ suggestions });
     }));
 
-    router.get('/api/v1/documents/:owner/:type/:id', guarded((req, res, viewer) => {
+    router.get('/api/v1/documents/:owner/:type/:id', guarded(limits('search.document.read'), (req, res, viewer) => {
         const { owner, type, id } = req.params;
         if (!OWNER_RE.test(owner) || !TYPE_RE.test(type) || !ID_RE.test(id)) throw new QueryError('search.bad_identity', 'owner, type or id is malformed');
         const found = store.get(owner, type, id);

@@ -11,6 +11,7 @@ const { queryRouter, createSearcher } = require('./api/query');
 const { savedRouter } = require('./api/saved');
 const { pageRouter } = require('./web/page');
 const { webhookRouter } = require('./api/webhook');
+const { createLimits } = require('./actor-limits');
 const pkg = require('../package.json');
 
 function createApp({ config, db, store, engine, auth, keys, outbox, relay, purges, purger, saved, log = console, now }) {
@@ -50,9 +51,12 @@ function createApp({ config, db, store, engine, auth, keys, outbox, relay, purge
     release.mount(app, { registry: metrics.registry });
 
     const searcher = createSearcher({ config, store, engine, now });
-    app.use(documentsRouter({ store, auth, db, relay, purges }));
-    app.use(queryRouter({ config, store, engine, auth, searcher }));
-    app.use(savedRouter({ config, saved, searcher, auth }));
+    // One per-actor limiter for the API routes below (server/actor-limits.js); the Events webhook,
+    // health, ready, release.json and metrics above are never limited.
+    const limits = createLimits({ config, now: now || (() => Date.now()), registry: metrics.registry, log });
+    app.use(documentsRouter({ store, auth, db, relay, purges, limits }));
+    app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
+    app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise) and /robots.txt.
     app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl }));
 

@@ -23,7 +23,7 @@ const { withViewer, QueryError, one } = require('./query');
 
 const NAME_MAX = 100;
 
-function savedRouter({ config, saved, searcher, auth }) {
+function savedRouter({ config, saved, searcher, auth, limits }) {
     const router = express.Router();
     const selfOrigin = (() => { try { return new URL(config.baseUrl).origin; } catch { return null; } })();
 
@@ -48,15 +48,18 @@ function savedRouter({ config, saved, searcher, auth }) {
         return viewer.subject;
     }
 
-    const guarded = (h) => withViewer(auth, h);
+    // Per-actor limits (server/actor-limits.js), counted by the signed-in person: reads (and running a
+    // saved search) take the defaults; saving and deleting are a person's clicks, 30 a minute at most.
+    const guarded = (limit, h) => withViewer(auth, h, limit);
+    const change = { minute: 30, hour: 300 };
 
-    router.get('/api/v1/saved-searches', guarded((req, res, viewer) => {
+    router.get('/api/v1/saved-searches', guarded(limits('search.saved.list'), (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
         res.json({ saved_searches: saved.list(subject), max: saved.maxPerSubject });
     }));
 
-    router.post('/api/v1/saved-searches', guarded((req, res, viewer) => {
+    router.post('/api/v1/saved-searches', guarded(limits('search.saved.create', change), (req, res, viewer) => {
         const ctx = req.ov;
         const subject = person(req, res, viewer, { write: true });
         if (!subject) return;
@@ -91,7 +94,7 @@ function savedRouter({ config, saved, searcher, auth }) {
         res.status(r.created ? 201 : 200).json({ saved_search: r.saved });
     }));
 
-    router.get('/api/v1/saved-searches/:id', guarded((req, res, viewer) => {
+    router.get('/api/v1/saved-searches/:id', guarded(limits('search.saved.read'), (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
         const s = saved.get(subject, req.params.id);
@@ -99,14 +102,14 @@ function savedRouter({ config, saved, searcher, auth }) {
         res.json({ saved_search: s });
     }));
 
-    router.delete('/api/v1/saved-searches/:id', guarded((req, res, viewer) => {
+    router.delete('/api/v1/saved-searches/:id', guarded(limits('search.saved.delete', change), (req, res, viewer) => {
         const subject = person(req, res, viewer, { write: true });
         if (!subject) return;
         if (!saved.remove(subject, req.params.id)) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
         res.status(204).end();
     }));
 
-    router.get('/api/v1/saved-searches/:id/results', guarded((req, res, viewer) => {
+    router.get('/api/v1/saved-searches/:id/results', guarded(limits('search.saved.run'), (req, res, viewer) => {
         const subject = person(req, res, viewer);
         if (!subject) return;
         const s = saved.get(subject, req.params.id);
