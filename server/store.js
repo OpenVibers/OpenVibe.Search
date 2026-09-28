@@ -34,7 +34,7 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
         insFacet: db.prepare('INSERT INTO doc_facets (rid, key, value) VALUES (?, ?, ?) ON CONFLICT DO NOTHING'),
         ownerPage: db.prepare(`SELECT rid, type, id, revision, deleted, hash, exposure, indexed_at FROM documents
             WHERE owner = @owner AND (@type::text IS NULL OR type = @type) AND rid > @after ORDER BY rid LIMIT @limit`),
-        counts: db.prepare(`SELECT COUNT(*) AS total, SUM(deleted) AS tombstones,
+        counts: db.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(deleted), 0)::bigint AS tombstones,
             SUM(CASE WHEN exposure = 3 THEN 1 ELSE 0 END) AS public_listed,
             SUM(CASE WHEN exposure = 2 THEN 1 ELSE 0 END) AS public_unlisted,
             SUM(CASE WHEN exposure = 1 THEN 1 ELSE 0 END) AS restricted FROM documents`),
