@@ -3,12 +3,11 @@
 > Permission-aware discovery for the network: the canonical index document, event-fed indexing,
 > an ACL-filtered query API, and deletion/visibility propagation.
 
-**Status:** alpha (roadmap Wave 14). Deployed internally, not launched: it runs on the production host
-(127.0.0.1:4710 only, since 2026-09-23) and is fed through Events, but the index holds only 10 wiki
-tombstones and 0 public documents.  
-**Domain:** `search.openvibe.network` (vhost in [deploy/nginx/](deploy/nginx/search.openvibe.network.conf),
-not installed yet: until it is, the name falls through to the admin.openvibe.network placeholder.
-Install steps: [Public host](#public-host))  
+**Status:** alpha (roadmap Wave 14). Runs on the production host (127.0.0.1:4710, since 2026-09-23)
+and is fed through Events; on 2026-09-23 the index held only 10 wiki tombstones and 0 public documents.  
+**Domain:** `search.openvibe.network`, served by this repository's vhost
+([deploy/nginx/](deploy/nginx/search.openvibe.network.conf); the service manifest records the search
+page and query API as public since 2026-09-23. Install steps: [Public host](#public-host))  
 **Plan:** OpenVibe End-to-End Realignment & Implementation Plan, revision 3 — roadmap §4.2 A, §15.12, §29, §32.3.  
 **License:** AGPL-3.0.
 
@@ -195,12 +194,22 @@ the `search.document.removed` event it records:
 
 ## Capabilities (released in openvibe-contracts v0.12.0; proposal in [docs/capabilities-proposal/](docs/capabilities-proposal/))
 
+Implemented here (the service manifest's `capabilities`):
+
 | Capability | Routes |
 |---|---|
 | `search.document.write` | `PUT/DELETE /api/v1/documents/:owner/:type/:id`, `/api/v1/owners/:owner/...` including the removal feed (own owner only) |
 | `search.query.delegate` | the query and saved-search routes, acting for `X-OV-Subject` |
+| `search.query.run` | `GET /api/v1/search`, `/api/v1/suggest`, `/api/v1/documents/:owner/:type/:id` as anyone: anonymous or with a person's Network token (no grant needed; a service token must hold `search.query.delegate`) |
 
-Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.33.0);
+Called elsewhere, as the service principal `search` (client credentials from OpenVibe.Network):
+
+| Service | Grant | Why |
+|---|---|---|
+| OpenVibe.Events | `events.event.publish` (audience `openvibe.events`) | the outbox relays `search.document.indexed` / `search.document.removed` |
+| OpenVibe.Events | `events.subscription.manage` (`npm run subscribe`, once) | the HMAC-signed subscription to `*.index_document.*` that delivers index events |
+
+Released in `openvibe-contracts` v0.12.0 with the service manifest (this repo pins v0.49.0);
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
 `openvibe-contracts-check --service search`.
 
@@ -254,20 +263,48 @@ token has DNS and rulesets scope only).
 Restore drill: `ovhost drill search` passed on the production host on 2026-09-23 (integrity check,
 readiness, identical query answers, row counts; see OpenVibe.Host `docs/restore-drills.md`).
 
-## Launch rule
+## Security
 
-This repository does not make the product real, and the domain keeps its placeholder page on
-[OpenVibers/OpenVibe.Sites](https://github.com/OpenVibers/OpenVibe.Sites) until: an owning runtime
-with health/readiness; Network identity and service principals; a public route useful without
-JavaScript (the search page at `/`); real
-persistence and end-to-end workflows; capabilities and events registered in OpenVibe.Contracts; a
-security review; and acceptance tests. The domain is not in `OpenVibe.Sites/sites.json`; this
-repository's own vhost serves it.
+Reporting: [SECURITY.md](SECURITY.md). The rules the code keeps:
 
-## Public host
+- **Auth.** Tokens are RS256 JWTs signed by OpenVibe.Network (its JWKS, or `OV_NETWORK_PUBLIC_KEY`):
+  service tokens need audience `openvibe.search` and the capability for the route, and an owner may
+  only write documents under its own service slug. A Bearer that does not verify is a 401, never
+  anonymous. Delegation headers (`X-OV-Subject`, `X-OV-Groups`, `X-OV-Entitlements`) count only with a
+  `search.query.delegate` service token. A cookie-authenticated write must carry this origin's `Origin`.
+- **Private data.** Visibility is enforced in the engine SQL and re-checked per hit; drafts, unpublished,
+  retracted and deleted documents reach nobody, a hidden document is the same 404 as a missing one,
+  results never carry the ACL, and every response is `no-store`. Saved searches store the query only.
+- **Network exposure.** The owner API, `/internal/events` and document writes are loopback-only in the
+  vhost; `/metrics` answers direct loopback callers only; client addresses come from `$remote_addr`.
+- **Egress.** Search calls only OpenVibe.Network (keys, tokens), OpenVibe.Events (`EVENTS_URL`) and,
+  when `CLOUDFLARE_PURGE_TOKEN` is set, the Cloudflare purge API. It never fetches a URL a user chose.
+- **Secrets.** `OV_OAUTH_CLIENT_SECRET`, `SEARCH_EVENTS_SECRET` and `CLOUDFLARE_PURGE_TOKEN` come from
+  the environment (`/etc/openvibe/search.env`, 0600) and are never stored or logged. Event deliveries
+  are HMAC-verified before anything is read.
 
-`search.openvibe.network` resolves through Cloudflare, but until this vhost is installed nginx
-answers it with its default site (the admin placeholder). The vhost
+## Deploy
+
+Production deploys with `sudo ovhost deploy search` on the host (strategy `git-checkout`: fetch,
+fast-forward `/opt/openvibe.search`, install on a lockfile change, restart, wait for `/api/ready`).
+
+| | |
+|---|---|
+| Checkout | `/opt/openvibe.search` |
+| Unit | `openvibe-search.service` ([deploy/systemd/](deploy/systemd/openvibe-search.service)), runs as `ubuntu` |
+| Port | `127.0.0.1:4710` |
+| Env file | `/etc/openvibe/search.env` |
+| Data | `/var/lib/openvibe-search/search.db` (`StateDirectory`) |
+| Public host | nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf) (below) |
+
+Rollback: ovhost puts the previous sha back by itself when `/api/ready` does not answer 2xx after the
+restart; afterwards `sudo ovhost rollback search --to <sha>`. Nothing blocks a rollback: the schema
+code only adds tables and columns, which an older release ignores.
+
+### Public host
+
+`search.openvibe.network` resolves through Cloudflare; without this vhost nginx answers it with its
+default site (the admin placeholder). The vhost
 ([deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)) uses the
 Network wildcard certificate, sets the client-address headers from `$remote_addr` only, answers
 `/metrics` with 404, keeps `/internal/`, `/api/v1/owners/` and document writes loopback-only, and
@@ -290,6 +327,16 @@ For the CDN purge, create a Cloudflare API token with only *Zone → Cache Purge
 product zones, then add `CLOUDFLARE_PURGE_TOKEN` and `CLOUDFLARE_ZONE_IDS` to
 `/etc/openvibe/search.env` (0600) and restart `openvibe-search`; `/api/ready` then shows
 `purge.cdn: "cloudflare"`.
+
+## Launch rule
+
+This repository does not make the product real, and the domain keeps its placeholder page on
+[OpenVibers/OpenVibe.Sites](https://github.com/OpenVibers/OpenVibe.Sites) until: an owning runtime
+with health/readiness; Network identity and service principals; a public route useful without
+JavaScript (the search page at `/`); real
+persistence and end-to-end workflows; capabilities and events registered in OpenVibe.Contracts; a
+security review; and acceptance tests. The domain is not in `OpenVibe.Sites/sites.json`; this
+repository's own vhost serves it.
 
 ---
 
