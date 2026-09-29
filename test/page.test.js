@@ -56,6 +56,14 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
     assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
     assert.ok(r.text.includes('data-ov-shipped="latest" data-service="search" href="/updates"'), 'what shipped');
+    // Boost (openvibe-shared 2.2.0): every page carries the release marker and the swap script, and <main id="main">
+    // is the element that changes, so a same-release move happens in place (any doubt is a normal load).
+    assert.match(r.text, /<meta name="ov-boost" content="search@[^"]+">/);
+    assert.match(r.text, /<script src="\/shared\/boost\.js\?v=[^"]+" data-main="#main" defer><\/script>/);
+    assert.ok(r.text.includes('<main id="main">'), 'the changing part');
+    // Sign-in must not bake the current path in: a {path} template returns to whatever page is showing.
+    const frameCfg = JSON.parse(/<script type="application\/json" id="ov-frame-config">([\s\S]*?)<\/script>/.exec(r.text)[1]);
+    assert.ok(!frameCfg.navbar.loginUrl || frameCfg.navbar.loginUrl.includes('{path}'), 'sign-in follows the current page');
 });
 
 t('the Frame init is a same-origin script and /updates is the shared log', async () => {
@@ -67,6 +75,7 @@ t('the Frame init is a same-origin script and /updates is the shared log', async
     assert.strictEqual(r.status, 200);
     assert.ok(r.text.includes('What shipped on OpenVibe.Search') && r.text.includes('data-ov-shipped="log" data-service="search"'));
     assert.match(r.text, /<link rel="canonical" href="https?:\/\/[^"/]+\/updates">/);
+    assert.match(r.text, /<meta name="ov-boost" content="search@[^"]+">/);
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
 });
 

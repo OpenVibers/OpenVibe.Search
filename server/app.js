@@ -20,6 +20,7 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
     app.set('trust proxy', 'loopback');
     app.set('query parser', 'extended');
     const release = createRelease({ service: 'search', root: path.join(__dirname, '..') });
+    require('./web/page').setRelease(release.release);
     // HTTP golden signals by route template, process metrics, release_info and the Search gauges;
     // GET /metrics answers direct loopback callers only (Track O).
     const metrics = instrument(app, { service: 'search', release: release.release });

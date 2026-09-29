@@ -21,6 +21,11 @@ const { QueryError, one } = require('../api/query');
 const SITE_NAME = 'OpenVibe.Search';
 const SITE_DESCRIPTION = "Search what the OpenVibe network's services have published.";
 
+// The deployed release (app.js sets it from openvibe-shared/release): openvibe-shared/boost swaps a page in
+// place only between pages of the same release, and does a normal load across a deploy.
+let RELEASE = 'dev';
+function setRelease(id) { if (id) RELEASE = String(id); }
+
 // The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; its init is
 // /frame-init.js (same origin, no inline script), reading the JSON config in #ov-frame-config.
 const NETWORK = 'https://openvibe.network';
@@ -156,6 +161,8 @@ ${jsonLd ? jsonLd + '\n' : ''}${require('openvibe-shared/app-icon').headTags({ s
 <script src="${ovServe.url('navbar.js')}" defer></script>
 <script src="${ovServe.url('footer.js')}" defer></script>
 <script src="/frame-init.js" defer></script>
+<meta name="ov-boost" content="search@${esc(RELEASE)}">
+<script src="${ovServe.url('boost.js')}" data-main="#main" defer></script>
 <style>
 /* The network theme (the Frame's theme loader sets these tokens on <html>) wins; the values here are the
    defaults when it does not load. Search's own names follow them, so the page and the shared widgets
@@ -187,7 +194,7 @@ mark { background: var(--mark); color: inherit; }
 <body>
 <div id="navbar-mount"></div>
 ${frame.noscriptNav({ name: 'OpenVibe.Search', links: [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }] })}
-<main>
+<main id="main">
 <h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>
 <form method="get" action="/" role="search">
@@ -310,4 +317,4 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     return router;
 }
 
-module.exports = { pageRouter, TEXT_INDEX, robotsTxt, llmsTxt, sitemapXml, homeJsonLd };
+module.exports = { pageRouter, setRelease, TEXT_INDEX, robotsTxt, llmsTxt, sitemapXml, homeJsonLd };
