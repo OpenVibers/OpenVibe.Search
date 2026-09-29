@@ -109,7 +109,7 @@ function createRelay({ outbox, eventsUrl, intervalMs = 2000, tokenClient, tokenO
         return { ok: res.ok, status: res.status, text };
     }
 
-    async function mark(rows, fn) { await db.tx(() => { for (const r of rows) fn(r); }); }
+    async function mark(rows, fn) { await db.tx(async () => { for (const r of rows) await fn(r); }); }
 
     async function publishRows(rows) {
         let r;

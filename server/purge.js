@@ -161,7 +161,7 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
 
     const clip = (s) => (token ? String(s || '').split(token).join('[token]') : String(s || '')).slice(0, DETAIL_MAX);
 
-    async function mark(rows, fn) { await db.tx(() => { for (const r of rows) fn(r); }); }
+    async function mark(rows, fn) { await db.tx(async () => { for (const r of rows) await fn(r); }); }
 
     async function retryOrFail(rows, detail) {
         await mark(rows, async (r) => {
