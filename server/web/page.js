@@ -193,7 +193,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
 
         let viewer;
         try {
-            viewer = auth.viewer(req);
+            viewer = await auth.viewer(req);
         } catch (err) {
             if (!(err instanceof AuthError)) return next(err);
             viewer = null; // a browser page never 401s: an unverifiable credential searches as anonymous

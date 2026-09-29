@@ -5,9 +5,11 @@
  *
  *   db            required  a real read of the documents table and of the full-text table (they
  *                           live in the same database): without them nothing can be indexed or found
- *   network_jwks  optional  the Network signing key has loaded. Without it anonymous queries still
- *                           answer (public documents only), but no token can be verified: owner
- *                           writes and signed-in queries fail, so it degrades rather than fails
+ *   network_jwks  optional  the SDK's JWKS client (openvibe-sdk/auth) has keys loaded. Without them
+ *                           anonymous queries still answer (public documents only), but no token can
+ *                           be verified: owner writes and signed-in queries fail, so it degrades
+ *                           rather than fails. Reports each client's keys, staleness, failures and
+ *                           next try (never its URL or error) from jwksStatus()
  *   index         optional  the full-text index agrees with the documents table: search_fts holds
  *                           exactly the public_listed and restricted documents. A mismatch means
  *                           queries miss (or would surface) documents
@@ -15,6 +17,7 @@
  * Gauges: documents by exposure, full-text entries by audience, and the events outbox backlog.
  */
 const { createReadiness } = require('openvibe-shared/ready');
+const { jwksStatus } = require('openvibe-sdk/auth');
 const { EXPOSURE } = require('./document');
 
 const EXPOSURE_NAMES = Object.fromEntries(Object.entries(EXPOSURE).map(([name, n]) => [n, name]));
@@ -32,7 +35,7 @@ function readers(db, engine) {
     };
 }
 
-function createSearchReadiness({ db, keys, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, release = null }) {
+function createSearchReadiness({ db, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, release = null }) {
     const read = readers(db, engine);
     return createReadiness({
         service: 'search',
@@ -49,7 +52,19 @@ function createSearchReadiness({ db, keys, config, engine, store, outbox, relay,
                     return { ok: true, detail: r.detail };
                 },
             },
-            { name: 'network_jwks', required: false, check: () => keys.loaded() || 'Network signing key not loaded yet: owner writes and signed-in queries cannot be verified' },
+            {
+                name: 'network_jwks', required: false,
+                check: () => {
+                    const states = jwksStatus();
+                    // Public: counts and times only. The JWKS URL is internal and the fetch error names it.
+                    const detail = states.map((s) => ({
+                        ready: s.ready, keys: s.keys, stale: s.stale, failures: s.failures,
+                        next_try_at: s.nextTryAt ? new Date(s.nextTryAt).toISOString() : null,
+                    }));
+                    if (states.length && states.every((s) => s.ready)) return { ok: true, detail };
+                    return { ok: false, error: 'Network signing key not loaded yet: owner writes and signed-in queries cannot be verified', detail };
+                },
+            },
             {
                 name: 'index', required: false, cacheMs: 10_000,
                 check: async () => {

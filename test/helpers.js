@@ -20,12 +20,21 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
 
 const silent = { log() {}, warn() {}, error(...a) { if (process.env.DEBUG) console.error(...a); } };
 
-function serviceToken(slug, cap, { aud = 'openvibe.search', exp = Math.floor(Date.now() / 1000) + 300, iss = ISSUER, key = privateKey, sub } = {}) {
+// The SDK's JWKS client (server/auth.js) fetches the Network keys; tests never touch the network, so a
+// stub answers the JWKS URL with this key pair's public JWK and delegates every other URL to `inner`.
+const JWKS_KID = 'test-network-key';
+function jwksDocument() {
+    const jwk = crypto.createPublicKey(publicKey).export({ format: 'jwk' });
+    return { keys: [{ ...jwk, kid: JWKS_KID, use: 'sig', alg: 'RS256' }] };
+}
+const stubJwks = async () => ({ ok: true, status: 200, json: async () => jwksDocument() });
+
+function serviceToken(slug, cap, { aud = 'openvibe.search', exp = Math.floor(Date.now() / 1000) + 300, iss = ISSUER, key = privateKey, sub, kid } = {}) {
     const now = Math.floor(Date.now() / 1000);
     return serviceAuth.signServiceToken({
         iss, sub: sub || `svc:${slug}`, actor_type: 'service', aud: [aud], cap, ns: [], iat: now, exp,
         jti: `tok_${crypto.randomBytes(8).toString('hex')}`,
-    }, key);
+    }, key, { kid });
 }
 
 function userToken({ subjectId = ids.newId('user'), role = 'user', aud = ['openvibe.live', 'openvibe.network'], exp = Math.floor(Date.now() / 1000) + 3600, key = privateKey, iss = ISSUER } = {}) {
@@ -34,17 +43,19 @@ function userToken({ subjectId = ids.newId('user'), role = 'user', aud = ['openv
     }, key);
 }
 
-async function boot({ env = {}, fetchImpl, tokenClient, now } = {}) {
+async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, now } = {}) {
     const config = load({
         NODE_ENV: 'test',
         PORT: '0',
-        OV_NETWORK_PUBLIC_KEY: publicKey,
         SEARCH_EVENTS_SECRET: WEBHOOK_SECRET,
         ...env,
     });
     // One database per boot (PGlite, or SEARCH_TEST_STORE=pg: the containers), dropped when the boot stops.
     const testdb = await require('./db').testDb();
-    const h = await start({ config, db: testdb.db, log: silent, fetchImpl, tokenClient, now });
+    const inner = fetchImpl || globalThis.fetch;
+    const jwks = jwksFetch || stubJwks;
+    const fetchImplBoth = async (url, opts) => String(url).includes('/api/.well-known/jwks') ? jwks(url, opts) : inner(url, opts);
+    const h = await start({ config, db: testdb.db, log: silent, fetchImpl: fetchImplBoth, tokenClient, now });
     const base = `http://127.0.0.1:${h.server.address().port}`;
     return { ...h, base, async stop() { await h.close(); await testdb.close(); } };
 }
@@ -132,5 +143,5 @@ function suite(name) {
 
 module.exports = {
     ISSUER, WEBHOOK_SECRET, privateKey, publicKey, silent, serviceToken, userToken, boot, request,
-    doc, indexEvent, deliver, suite,
+    doc, indexEvent, deliver, suite, jwksDocument, stubJwks, JWKS_KID,
 };

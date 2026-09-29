@@ -268,7 +268,7 @@ readiness, identical query answers, row counts; see OpenVibe.Host `docs/restore-
 
 Reporting: [SECURITY.md](SECURITY.md). The rules the code keeps:
 
-- **Auth.** Tokens are RS256 JWTs signed by OpenVibe.Network (its JWKS, or `OV_NETWORK_PUBLIC_KEY`):
+- **Auth.** Tokens are RS256 JWTs signed by OpenVibe.Network (verified through the SDK's JWKS client at `/api/.well-known/jwks`):
   service tokens need audience `openvibe.search` and the capability for the route, and an owner may
   only write documents under its own service slug. A Bearer that does not verify is a 401, never
   anonymous. Delegation headers (`X-OV-Subject`, `X-OV-Groups`, `X-OV-Entitlements`) count only with a

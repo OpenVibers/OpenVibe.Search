@@ -4,14 +4,19 @@
  *
  *   - Service principals: RS256 client-credentials tokens from OpenVibe.Network (audience
  *     openvibe.search), verified offline with openvibe-contracts serviceAuth.verifyServiceToken.
- *   - Browsers: Network user JWTs (RS256, same key), cookie `ov_token` or Bearer.
+ *   - Browsers: Network user JWTs (RS256, same key), cookie `ov_token` or Bearer, verified with the
+ *     SDK's verifyUserToken.
+ *
+ * The verification keys come from the SDK's JWKS client (openvibe-sdk/auth): one refresher per URL
+ * that keeps the last good keys through an outage, honours a rotation at once and backs off on
+ * failure. This service no longer fetches or caches the JWKS itself.
  *
  * search.document.write and search.query.delegate are proposed in docs/capabilities-proposal/ and
  * are not in openvibe-contracts yet. checkCapability() decides them with the library's own grant
  * rule (exact id or a `family.*` grant) until a contracts release knows them; from then on the
  * library decides and nothing changes here.
  */
-const crypto = require('crypto');
+const { verifyUserToken } = require('openvibe-sdk/auth');
 const { serviceAuth, capabilities, http, ids } = require('openvibe-contracts');
 
 const CAPS = Object.freeze({
@@ -23,66 +28,6 @@ const PROPOSED = new Set(Object.values(CAPS));
 const PRINCIPAL_SUB = /^(svc|app|mod):/;
 const GROUP_RE = /^[a-z][a-z0-9_.:-]{0,127}$/;
 const MAX_VIEWER_KEYS = 100;
-
-// ── Network public key ─────────────────────────────────────
-
-/**
- * Loads the Network signing key from GET /api/.well-known/jwks ({ keys: [jwk] } or the older
- * { public_key: PEM }), retrying every 30 s until it loads and refreshing every 6 h after that.
- * A PEM given in config (OV_NETWORK_PUBLIC_KEY) is used as is and never fetched.
- */
-function createKeyStore({ urls = [], pem = null, fetchImpl = globalThis.fetch, log = console } = {}) {
-    let key = pem ? toPem(pem) : null;
-    let retryTimer = null;
-    let refreshTimer = null;
-
-    function toPem(value) {
-        return crypto.createPublicKey(value).export({ type: 'spki', format: 'pem' });
-    }
-
-    async function fetchOnce() {
-        for (const base of urls) {
-            if (!base) continue;
-            const url = `${base}/api/.well-known/jwks`;
-            try {
-                const res = await fetchImpl(url, { signal: AbortSignal.timeout(8000) });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const body = await res.json();
-                const jwk = (body.keys || []).find(k => k.kty === 'RSA');
-                if (jwk) key = toPem({ key: jwk, format: 'jwk' });
-                else if (typeof body.public_key === 'string' && body.public_key.includes('BEGIN')) key = toPem(body.public_key);
-                else throw new Error('no RSA key in response');
-                log.log(`[auth] Network public key loaded from ${base}`);
-                return key;
-            } catch (err) {
-                log.warn(`[auth] key fetch from ${url} failed: ${err.message}`);
-            }
-        }
-        return null;
-    }
-
-    async function start() {
-        if (pem) return Promise.resolve(key);
-        const attempt = async () => {
-            const k = await fetchOnce();
-            if (!k && !key) {
-                retryTimer = setTimeout(attempt, 30 * 1000);
-                retryTimer.unref?.();
-            }
-            return k;
-        };
-        refreshTimer = setInterval(() => { fetchOnce().catch(() => {}); }, 6 * 60 * 60 * 1000);
-        refreshTimer.unref?.();
-        return await attempt();
-    }
-
-    function stop() {
-        clearTimeout(retryTimer);
-        clearInterval(refreshTimer);
-    }
-
-    return { get: () => key, loaded: () => Boolean(key), start, stop, fetchOnce };
-}
 
 // ── Capabilities ───────────────────────────────────────────
 
@@ -104,29 +49,6 @@ function decodePayload(token) {
     const parts = typeof token === 'string' ? token.split('.') : [];
     if (parts.length !== 3) return null;
     try { return b64json(parts[1]); } catch { return null; }
-}
-
-/** Network user JWT (RS256). Returns claims or null. Service tokens are never accepted as users. */
-function verifyUserJwt(token, { publicKey, issuer, audiences, now = Date.now() }) {
-    if (!publicKey || typeof token !== 'string') return null;
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    try {
-        const header = b64json(parts[0]);
-        if (header.alg !== 'RS256') return null;
-        const ok = crypto.verify('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), publicKey, Buffer.from(parts[2], 'base64url'));
-        if (!ok) return null;
-        const claims = b64json(parts[1]);
-        const t = Math.floor(now / 1000);
-        if (typeof claims.exp !== 'number' || claims.exp + 30 < t) return null;
-        if (issuer && claims.iss !== issuer) return null;
-        const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-        if (!aud.some(a => audiences.includes(a))) return null;
-        if (claims.actor_type || PRINCIPAL_SUB.test(String(claims.sub))) return null;
-        return claims;
-    } catch {
-        return null;
-    }
 }
 
 function bearer(req) {
@@ -166,15 +88,46 @@ function keyList(value, header) {
 
 const ANONYMOUS = Object.freeze({ kind: 'anonymous', subject: null, groups: [], entitlements: [] });
 
-function createAuth({ config, keys }) {
-    function verifyService(token) {
-        const publicKey = keys.get();
-        if (!publicKey) return { ok: false, code: 'token.unavailable', reason: 'signing key not loaded yet' };
-        return serviceAuth.verifyServiceToken(token, { publicKey, issuer: config.issuer, audience: config.audience });
+function createAuth({ config, jwks, log = console }) {
+    /**
+     * A service principal token. openvibe-contracts keeps the token rules (RS256, issuer, the one
+     * audience, expiry, identity.service-token-claims@1, sandbox refusal); the signing key comes from
+     * the SDK's JWKS client, which refetches at once for an unknown `kid` (a rotation) and keeps the
+     * last good keys while Network is down. Returns { ok, claims } or { ok, code, reason }.
+     */
+    async function verifyService(token) {
+        const parts = String(token || '').split('.');
+        let kid = null;
+        try { kid = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')).kid || null; } catch { /* contracts refuses a malformed token */ }
+        let keys;
+        try {
+            keys = await jwks.keysForKid(kid);
+        } catch (err) {
+            // The SDK's message names the internal JWKS URL and the fetch error: the client logs it, nobody is told.
+            return { ok: false, code: 'token.unavailable', reason: 'signing key not loaded yet' };
+        }
+        // The key the token names, else every key (a kid-less token, or a document without kids); first verdict that
+        // is not a bad signature wins.
+        const byKid = kid ? keys.filter((k) => k.kid === kid) : [];
+        let last = { ok: false, code: 'token.unavailable', reason: 'signing key not loaded yet' };
+        for (const k of byKid.length ? byKid : keys) {
+            last = serviceAuth.verifyServiceToken(token, { publicKey: k.key, issuer: config.issuer, audience: config.audience });
+            if (last.ok || last.code !== 'token.bad_signature') return last;
+        }
+        return last;
     }
 
-    function verifyUser(token) {
-        return verifyUserJwt(token, { publicKey: keys.get(), issuer: config.issuer, audiences: config.userAudiences });
+    /**
+     * A Network user JWT (RS256). Resolves to the claims, or null when it does not verify. Rejects with
+     * the SDK's 503-class error while no key has been fetched yet, so the caller can answer 503.
+     */
+    async function verifyUser(token) {
+        try {
+            return await verifyUserToken(token, { jwks: jwks.url, issuer: config.issuer, audience: config.userAudiences, log });
+        } catch (err) {
+            if (err && err.status === 503) throw err;
+            return null;
+        }
     }
 
     /**
@@ -182,11 +135,12 @@ function createAuth({ config, keys }) {
      * Only service principals (svc:<slug>) pass: documents are always owned by a service.
      */
     function requireCap(id) {
-        return function capGuard(req, res, next) {
+        return async function capGuard(req, res, next) {
             const ctx = req.ov;
             const token = bearer(req);
             if (!token) return http.sendProblem(res, 401, 'token.missing', { detail: 'a service token is required', ctx });
-            const r = verifyService(token);
+            let r;
+            try { r = await verifyService(token); } catch (err) { return next(err); }
             if (!r.ok) return http.sendProblem(res, r.code === 'token.unavailable' ? 503 : 401, r.code, { detail: r.reason, ctx });
             const c = checkCapability(r.claims, id);
             if (!c.allowed) return http.sendProblem(res, 403, c.code, { detail: c.reason, ctx });
@@ -215,12 +169,12 @@ function createAuth({ config, keys }) {
      * A presented Bearer must verify (never downgraded to anonymous); an unverifiable cookie is
      * treated as signed out.
      */
-    function viewer(req) {
+    async function viewer(req) {
         const token = bearer(req);
         if (token) {
             const payload = decodePayload(token);
             if (payload && PRINCIPAL_SUB.test(String(payload.sub))) {
-                const r = verifyService(token);
+                const r = await verifyService(token);
                 if (!r.ok) throw new AuthError(r.code === 'token.unavailable' ? 503 : 401, r.code, r.reason);
                 const c = checkCapability(r.claims, CAPS.delegate);
                 if (!c.allowed) throw new AuthError(403, c.code, c.reason);
@@ -242,13 +196,13 @@ function createAuth({ config, keys }) {
                     entitlements: keyList(req.get('x-ov-entitlements'), 'X-OV-Entitlements'),
                 };
             }
-            if (!keys.get()) throw new AuthError(503, 'token.unavailable', 'signing key not loaded yet');
-            const user = verifyUser(token);
+            let user;
+            try { user = await verifyUser(token); } catch { throw new AuthError(503, 'token.unavailable', 'signing key not loaded yet'); }
             if (!user) throw new AuthError(401, 'token.invalid', 'token does not verify');
             return userViewer(user);
         }
         const fromCookie = cookie(req, 'ov_token');
-        const user = fromCookie ? verifyUser(fromCookie) : null;
+        const user = fromCookie ? await verifyUser(fromCookie).catch(() => null) : null;
         if (!user) return ANONYMOUS;
         const v = userViewer(user);
         // `via` lets state-changing routes demand a same-origin request for ambient credentials.
@@ -258,4 +212,4 @@ function createAuth({ config, keys }) {
     return { verifyService, verifyUser, requireCap, viewer };
 }
 
-module.exports = { CAPS, PROPOSED, ANONYMOUS, AuthError, createKeyStore, createAuth, checkCapability, verifyUserJwt, serviceSlug, bearer, cookie };
+module.exports = { CAPS, PROPOSED, ANONYMOUS, AuthError, createAuth, checkCapability, serviceSlug, bearer, cookie };

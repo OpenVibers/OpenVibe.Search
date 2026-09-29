@@ -12,7 +12,8 @@ const { openDb } = require('./db');
 const { createEngine } = require('./engine/pg');
 const { createStore } = require('./store');
 const { createOutbox, createRelay } = require('./events/outbox');
-const { createKeyStore, createAuth } = require('./auth');
+const { jwksClient } = require('openvibe-sdk/auth');
+const { createAuth } = require('./auth');
 const { createPurgeQueue, createPurger } = require('./purge');
 const { createSavedSearches } = require('./saved');
 const { createApp } = require('./app');
@@ -35,11 +36,17 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         tokenClient,
         tokenOpts: config.oauth.clientSecret ? { tokenUrl: `${config.networkInternalUrl}/oauth/token`, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret } : null,
     });
-    const keys = createKeyStore({ urls: [config.networkInternalUrl, config.networkUrl], pem: config.networkPublicKey, fetchImpl, log });
-    const auth = createAuth({ config, keys });
-    const app = createApp({ config, db, store, engine, auth, keys, outbox, relay, purges, purger, saved, log, now });
+    // Identity keys: the SDK keeps one JWKS client per URL (openvibe-sdk/auth). It serves the last good
+    // keys through an outage, refetches at once for an unknown kid (a rotation) and backs off on failure.
+    const jwksUrl = `${config.networkInternalUrl}/api/.well-known/jwks`;
+    const jwks = jwksClient(jwksUrl, { log, fetch: fetchImpl });
+    const auth = createAuth({ config, jwks, log });
+    const app = createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, log, now });
 
-    const keyLoaded = keys.start().catch(() => null);
+    // The background refresher is not started under the test runtime (the tests stub the fetch and load
+    // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
+    if (config.nodeEnv !== 'test') jwks.start();
+    const keyLoaded = jwks.keys().catch(() => null);
     relay.start();
     purger.start();
     const pruneTimer = setInterval(async () => { try { await outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
@@ -56,7 +63,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
 
     async function close() {
         clearInterval(pruneTimer);
-        keys.stop();
+        jwks.stop();
         await relay.stop();
         await purger.stop();
         if (server) {
@@ -66,7 +73,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         if (!givenDb) await db.close();
     }
 
-    return { config, db, engine, store, outbox, relay, purges, purger, saved, keys, keyLoaded, auth, app, server, close };
+    return { config, db, engine, store, outbox, relay, purges, purger, saved, jwks, keyLoaded, auth, app, server, close };
 }
 
 if (require.main === module) {

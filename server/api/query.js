@@ -172,7 +172,7 @@ function withViewer(auth, handler, limit = null) {
         const ctx = req.ov;
         let viewer;
         try {
-            viewer = auth.viewer(req);
+            viewer = await auth.viewer(req);
         } catch (err) {
             if (err instanceof AuthError) return http.sendProblem(res, err.status, err.code, { detail: err.message, ctx });
             return next(err);

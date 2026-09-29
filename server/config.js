@@ -57,11 +57,10 @@ function load(env = process.env) {
         serviceId: 'search',
         baseUrl: strip(env.BASE_URL || (isProduction ? 'https://search.openvibe.network' : `http://localhost:${port}`)),
 
-        // Identity: OpenVibe.Network signs service tokens (audience openvibe.search) and user JWTs.
-        networkUrl: strip(env.OV_NETWORK_URL || 'https://openvibe.network'),
+        // Identity: OpenVibe.Network signs service tokens (audience openvibe.search) and user JWTs; the
+        // SDK's JWKS client fetches the keys from <networkInternalUrl>/api/.well-known/jwks.
         networkInternalUrl: strip(env.OV_NETWORK_INTERNAL_URL || 'http://127.0.0.1:4000'),
         issuer: strip(env.OV_NETWORK_ISSUER || env.OV_NETWORK_URL || 'https://openvibe.network'),
-        networkPublicKey: env.OV_NETWORK_PUBLIC_KEY ? env.OV_NETWORK_PUBLIC_KEY.replace(/\\n/g, '\n') : null,
         audience: 'openvibe.search',
         // A browser's user JWT is accepted when its aud contains one of these.
         userAudiences: list(env.SEARCH_USER_AUDIENCES, ['openvibe.search', 'openvibe.network']),
