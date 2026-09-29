@@ -25,17 +25,17 @@ revision-ordered copy and can be reconciled against it.
 npm install
 cp .env.example .env
 npm run dev            # http://127.0.0.1:4710
-npm test               # every test/*.test.js, temp databases, no network needed
+npm test               # every test/*.test.js, a PGlite database per file, no network needed
 ```
 
 Node 22 in production (`fnm exec --using=22.22.1 npm test`). Production: `/opt/openvibe.search`,
 env `/etc/openvibe/search.env`, unit [deploy/systemd/openvibe-search.service](deploy/systemd/openvibe-search.service),
-database `ov_search` on the host's data role (ADR-035; `sudo /opt/openvibe.host/roles/data/add-service.sh search`; the one-time move from `/var/lib/openvibe-search/search.db` is `scripts/migrate-to-postgres.js`, and the full-text index rebuilds itself from the documents at boot), nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)
+database `ov_search` on the host's data role (ADR-035; `sudo /opt/openvibe.host/roles/data/add-service.sh search`; the full-text index rebuilds itself from the documents at boot), nginx [deploy/nginx/search.openvibe.network.conf](deploy/nginx/search.openvibe.network.conf)
 (the public vhost exposes the search page, the GET query API, saved searches and health; the owner
 API and the Events webhook are loopback-only, and owners and Events call `127.0.0.1:4710`).
 
 `GET /api/health` is liveness. `GET /api/ready` (openvibe-shared/ready) is 503 only when the
-database (the documents and both full-text tables) fails; a Network signing key that has not loaded
+database (the documents and the full-text table) fails; a Network signing key that has not loaded
 (anonymous queries still answer) and a full-text index out of step with the documents table degrade
 it. It also reports document counts by exposure, the outbox backlog and whether the Events webhook
 is on. `GET /metrics` (openvibe-shared/metrics) answers direct loopback callers only: golden signals
@@ -51,7 +51,7 @@ GET /api/v1/documents/:owner/:type/:id
 ```
 
 - `q` is plain text: word tokens only, every word required, a trailing `*` makes the last word a
-  prefix. FTS operators and column filters in `q` are neutralised. No `q` = newest first.
+  prefix. Query operators and column filters in `q` are neutralised. No `q` = newest first.
 - Results carry `owner, type, id, revision, visibility, title, summary, canonical_url, facets,
   language, authorship, provenance, published_at, updated_at, indexable` and a `snippet_html`
   (escaped text with `<mark>`). Never the ACL. `next_cursor` is bound to the query that made it.
@@ -69,7 +69,7 @@ Who sees what:
 Drafts, unpublished, retracted and deleted documents are returned to nobody. A hidden document and
 a missing one give the same 404. A Bearer that does not verify is a 401 (never downgraded to
 anonymous); delegation headers from a browser are ignored. Visibility is enforced in the engine
-SQL (two FTS tables split by audience plus an ACL predicate) and re-checked per hit — see
+SQL (the full-text table split by audience plus an ACL predicate) and re-checked per hit — see
 [docs/adr-engine.md](docs/adr-engine.md).
 
 The search page at `/` runs the same query as HTML for browsers (no JavaScript; no-store; result
@@ -78,11 +78,11 @@ route index at `/`.
 
 ### Ranking
 
-Full-text results are ordered by bm25 relevance (title ×10, summary ×4, body ×1) multiplied by a
+Full-text results are ordered by full-text relevance (title ×10, summary ×4, body ×1) multiplied by a
 freshness boost:
 
 ```
-score = bm25 × (1 + W × 2^(−age_days / H))        W = SEARCH_FRESHNESS_WEIGHT (default 1)
+score = relevance × (1 + W × 2^(−age_days / H))   W = SEARCH_FRESHNESS_WEIGHT (default 1)
                                                   H = SEARCH_FRESHNESS_HALF_LIFE_DAYS (default 30)
 ```
 
@@ -236,7 +236,7 @@ Never limited: the signed Events deliveries (`POST /internal/events`), `/api/hea
 ## Acceptance (tests)
 
 - a private or draft document is never returned to an unauthorized query — hits, snippets, facet
-  counts, suggestions, direct gets, cursors and FTS-syntax injection (`test/acl-leak.test.js`)
+  counts, suggestions, direct gets, cursors and full-text-syntax injection (`test/acl-leak.test.js`)
 - a visibility change or deletion removes the document from results immediately and emits
   `search.document.removed` (`test/acl-leak.test.js`)
 - revision ordering, tombstones, restore, reconciliation (`test/documents.test.js`)

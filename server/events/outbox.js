@@ -16,22 +16,6 @@ const { ids, validate, serviceAuth } = require('openvibe-contracts');
 
 const BACKOFF_MS = [1000, 5000, 30000, 120000, 600000];
 
-function ensureSchema(db) {
-    db.exec(`CREATE TABLE IF NOT EXISTS event_outbox (
-        seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id        TEXT NOT NULL UNIQUE,
-        event_type      TEXT NOT NULL,
-        envelope        TEXT NOT NULL,
-        created_at      INTEGER NOT NULL,
-        attempts        INTEGER NOT NULL DEFAULT 0,
-        next_attempt_at INTEGER NOT NULL DEFAULT 0,
-        sent_at         INTEGER,
-        rejected_at     INTEGER,
-        last_error      TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_event_outbox_due ON event_outbox(sent_at, rejected_at, next_attempt_at);`);
-}
-
 function createOutbox(db, { source, now = () => Date.now() }) {
     const insert = db.prepare('INSERT INTO event_outbox (event_id, event_type, envelope, created_at) VALUES (?, ?, ?, ?)');
 
@@ -176,4 +160,4 @@ function createRelay({ outbox, eventsUrl, intervalMs = 2000, tokenClient, tokenO
     return { start, stop, flush, running: () => Boolean(timer) };
 }
 
-module.exports = { ensureSchema, createOutbox, createRelay };
+module.exports = { createOutbox, createRelay };

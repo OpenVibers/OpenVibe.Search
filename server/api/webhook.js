@@ -9,7 +9,7 @@
  * with envelope subject { type, id, revision } and visibility "internal".
  *
  * Exactly once: the inbox receipt (consumer, event_id) and the document change commit in one
- * SQLite transaction. A redelivery of a processed event is answered 204 and changes nothing.
+ * database transaction. A redelivery of a processed event is answered 204 and changes nothing.
  * Revision order is the store's rule, so out-of-order delivery is harmless.
  *
  * Refusals (unknown owner, a source writing another owner's document, a bad document, a subject

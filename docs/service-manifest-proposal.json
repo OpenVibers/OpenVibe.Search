@@ -26,5 +26,5 @@
     "*.index_document.deleted"
   ],
   "namespacesOwned": [],
-  "notes": "Canonical index document (search.index-document@1), event-fed and direct indexing with revision ordering and tombstones, permission-aware query over SQLite FTS5 (docs/adr-engine.md). Anonymous queries need no token."
+  "notes": "Canonical index document (search.index-document@1), event-fed and direct indexing with revision ordering and tombstones, permission-aware query over PostgreSQL full-text search (docs/adr-engine.md). Anonymous queries need no token."
 }

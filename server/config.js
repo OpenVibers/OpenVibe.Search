@@ -72,8 +72,6 @@ function load(env = process.env) {
 
         // PostgreSQL (ADR-035): DATABASE_URL serves (PgBouncer), DATABASE_DIRECT_URL migrates (owner role).
         db: { url: env.DATABASE_URL || '', directUrl: env.DATABASE_DIRECT_URL || '' },
-        // The SQLite file of releases before the switch: read once by scripts/migrate-to-postgres.js.
-        dbPath: env.SEARCH_DB_PATH || './data/search.db',
 
         // Events: the outbox relays only when EVENTS_URL is set (rows wait otherwise).
         events: {

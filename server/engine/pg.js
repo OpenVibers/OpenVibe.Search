@@ -1,7 +1,7 @@
 'use strict';
 /**
- * Search engine: PostgreSQL full-text search in the service's own database (ADR-035; it replaced SQLite FTS5, the
- * engine docs/adr-engine.md chose, with the same interface and the same guarantees).
+ * Search engine: PostgreSQL full-text search in the service's own database (ADR-035; the engine docs/adr-engine.md
+ * chose, with the same interface and the same guarantees).
  *
  * One table, search_fts, split by audience so an anonymous query never touches, ranks against or counts anything but
  * public listed documents:
@@ -13,15 +13,16 @@
  * also filtered by `documents.exposure` and, for restricted rows, by the viewer's ACL keys (doc_acl) in the same SQL:
  * visibility is decided before anything is ranked, counted, snippeted or suggested.
  *
- * Text is folded before it is indexed or queried (NFKD, combining marks removed: FTS5's remove_diacritics), split into
- * runs of letters and digits (FTS5's unicode61) and tokenized by the `simple` configuration (lower case, no stemming, no stop words: FTS5's unicode61). Title, summary and
- * body weigh 10, 4 and 1 (tsvector weights A, B, C). Every function here is async; put and remove run inside the store's
+ * Text is folded before it is indexed or queried (NFKD, combining marks removed), split into runs of letters and
+ * digits and tokenized by the `simple` configuration (lower case, no stemming, no stop words): the index and every
+ * query see the same text. Title, summary and body weigh 10, 4 and 1 (tsvector weights A, B, C), with the freshness
+ * boost described below. Every function here is async; put and remove run inside the store's
  * transaction (ambient). Nothing outside this file writes SQL against search_fts.
  */
 const { EXPOSURE } = require('../document');
 
 const CONFIG = 'simple';
-const WEIGHTS = '{0.1, 0.1, 0.4, 1.0}';   // D, C body, B summary, A title: FTS5's bm25 weights 10 / 4 / 1
+const WEIGHTS = '{0.1, 0.1, 0.4, 1.0}';   // D, C body, B summary, A title: ts_rank weights 1 / 4 / 10
 const MARK_OPEN = '\u0001';
 const MARK_CLOSE = '\u0002';
 const HEADLINE = `StartSel=${MARK_OPEN}, StopSel=${MARK_CLOSE}, MaxWords=16, MinWords=8, ShortWord=0, MaxFragments=1, FragmentDelimiter=" … "`;
@@ -47,15 +48,15 @@ function freshnessBoost(iso, nowMs, halfLifeDays, weight) {
     return 1 + weight * Math.pow(2, -ageDays / halfLifeDays);
 }
 
-/** Diacritics folded, as FTS5's remove_diacritics did: the index and every query see the same text. */
+/** Diacritics folded, so the index and every query see the same text. */
 function fold(s) {
     return String(s || '').normalize('NFKD').replace(/\p{M}+/gu, '').normalize('NFC');
 }
 
 /**
- * The words FTS5's unicode61 tokenizer saw: runs of letters and digits, everything else a separator. PostgreSQL's
- * parser would keep "OpenVibe.Live", "a_b" or "3.5" as single tokens (host, word, number); separating them first makes
- * "openvibe" find "OpenVibe.Live" as it did.
+ * Word tokens: runs of letters and digits, everything else a separator. PostgreSQL's parser would
+ * keep "OpenVibe.Live", "a_b" or "3.5" as single tokens (host, word, number); separating them first
+ * makes "openvibe" find "OpenVibe.Live".
  */
 function words(s) {
     return fold(s).replace(/[^\p{L}\p{N}]+/gu, ' ');
@@ -124,7 +125,7 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
 
     /**
      * The visible, matching set as (rid, rank) rows. match = toMatch()'s query. rank is minus ts_rank times the
-     * freshness boost at reference time `now` (ms), so lower ranks first (as FTS5's bm25 did) and pages of one query
+     * freshness boost at reference time `now` (ms), so lower ranks first and pages of one query
      * (which carry their first page's `now` in the cursor) rank against the same clock.
      */
     function matchedSet({ match, filters, viewer, now = Date.now() }, params) {
@@ -234,8 +235,8 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     }
 
     /**
-     * Rebuild the index from documents.doc when its counts disagree with the documents table (after the one-time import
-     * from SQLite, whose FTS5 tables are not copied). Returns what it did.
+     * Rebuild the index from documents.doc when its counts disagree with the documents table (for instance after a
+     * restore). Returns what it did.
      */
     async function reconcile() {
         const docs = await db.prepare(`SELECT

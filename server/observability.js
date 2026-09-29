@@ -3,16 +3,16 @@
  * Track O: truthful readiness for GET /api/ready and the Search gauges on GET /metrics
  * (openvibe-shared/ready and openvibe-shared/metrics).
  *
- *   db            required  a real read of the documents table and of both full-text tables (they
- *                           live in the same SQLite file): without them nothing can be indexed or found
+ *   db            required  a real read of the documents table and of the full-text table (they
+ *                           live in the same database): without them nothing can be indexed or found
  *   network_jwks  optional  the Network signing key has loaded. Without it anonymous queries still
  *                           answer (public documents only), but no token can be verified: owner
  *                           writes and signed-in queries fail, so it degrades rather than fails
- *   index         optional  the full-text index agrees with the documents table: fts_public holds
- *                           exactly the public_listed documents and fts_restricted the restricted
- *                           ones. A mismatch means queries miss (or would surface) documents
+ *   index         optional  the full-text index agrees with the documents table: search_fts holds
+ *                           exactly the public_listed and restricted documents. A mismatch means
+ *                           queries miss (or would surface) documents
  *
- * Gauges: documents by exposure, full-text entries by table, and the events outbox backlog.
+ * Gauges: documents by exposure, full-text entries by audience, and the events outbox backlog.
  */
 const { createReadiness } = require('openvibe-shared/ready');
 const { EXPOSURE } = require('./document');
@@ -90,7 +90,7 @@ function registerSearchGauges(registry, { db, engine, outbox, purges = null }) {
         collect: async () => Object.entries(await read.documents()).map(([exposure, value]) => ({ labels: { exposure }, value })),
     });
     registry.gauge({
-        name: 'search_documents_indexed', help: 'Documents in the full-text index, by table', labelNames: ['index'],
+        name: 'search_documents_indexed', help: 'Documents in the full-text index, by audience', labelNames: ['index'],
         collect: async () => Object.entries(await read.indexed()).map(([index, value]) => ({ labels: { index }, value })),
     });
     registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: async () => await outbox.pending() });

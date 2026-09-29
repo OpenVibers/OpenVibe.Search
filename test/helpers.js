@@ -5,9 +5,6 @@
  * Events delivery helper. Nothing here needs the network or a running OpenVibe.Network.
  */
 const crypto = require('crypto');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { serviceAuth, ids } = require('openvibe-contracts');
 const { load } = require('../server/config');
 const { start } = require('../server/index');
@@ -37,21 +34,10 @@ function userToken({ subjectId = ids.newId('user'), role = 'user', aud = ['openv
     }, key);
 }
 
-const made = [];
-process.on('exit', () => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
-
-function tmpDir() {
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ov-search-test-'));
-    made.push(d);
-    return d;
-}
-
 async function boot({ env = {}, fetchImpl, tokenClient, now } = {}) {
-    const dir = tmpDir();
     const config = load({
         NODE_ENV: 'test',
         PORT: '0',
-        SEARCH_DB_PATH: path.join(dir, 'search.db'),
         OV_NETWORK_PUBLIC_KEY: publicKey,
         SEARCH_EVENTS_SECRET: WEBHOOK_SECRET,
         ...env,
@@ -60,7 +46,7 @@ async function boot({ env = {}, fetchImpl, tokenClient, now } = {}) {
     const testdb = await require('./db').testDb();
     const h = await start({ config, db: testdb.db, log: silent, fetchImpl, tokenClient, now });
     const base = `http://127.0.0.1:${h.server.address().port}`;
-    return { ...h, base, dir, async stop() { await h.close(); await testdb.close(); } };
+    return { ...h, base, async stop() { await h.close(); await testdb.close(); } };
 }
 
 async function request(base, method, p, { token, body, headers = {}, raw } = {}) {
@@ -145,6 +131,6 @@ function suite(name) {
 }
 
 module.exports = {
-    ISSUER, WEBHOOK_SECRET, privateKey, publicKey, silent, serviceToken, userToken, tmpDir, boot, request,
+    ISSUER, WEBHOOK_SECRET, privateKey, publicKey, silent, serviceToken, userToken, boot, request,
     doc, indexEvent, deliver, suite,
 };

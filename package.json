@@ -2,7 +2,7 @@
   "name": "openvibe-search",
   "version": "0.1.0",
   "private": true,
-  "description": "OpenVibe.Search: the canonical index document, event-fed and direct indexing with revision ordering and tombstones, and a permission-aware query API over SQLite FTS5.",
+  "description": "OpenVibe.Search: the canonical index document, event-fed and direct indexing with revision ordering and tombstones, and a permission-aware query API over PostgreSQL full-text search.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -14,7 +14,7 @@
   "keywords": [
     "openvibe",
     "search",
-    "fts5",
+    "full-text",
     "acl"
   ],
   "author": "OpenVibers",
@@ -23,7 +23,6 @@
   "dependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "better-sqlite3": "^11.10.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "openvibe-contracts": "https://codeload.github.com/OpenVibers/OpenVibe.Contracts/tar.gz/refs/tags/v0.76.0",

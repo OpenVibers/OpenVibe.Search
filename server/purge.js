@@ -25,42 +25,6 @@ const MAX_ATTEMPTS = 8;
 const FILES_PER_CALL = 30;
 const DETAIL_MAX = 300;
 
-function ensureSchema(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS removals (
-        seq               INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id          TEXT NOT NULL,              -- the search.document.removed event
-        owner             TEXT NOT NULL,
-        type              TEXT NOT NULL,
-        id                TEXT NOT NULL,
-        revision          INTEGER NOT NULL,
-        reason            TEXT NOT NULL,
-        previous_exposure TEXT NOT NULL,
-        exposure          TEXT NOT NULL,
-        canonical_url     TEXT,                       -- only a URL that had been public
-        at                INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_removals_owner ON removals (owner, seq);
-
-    CREATE TABLE IF NOT EXISTS cdn_purges (
-        seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-        removal_seq     INTEGER NOT NULL,
-        provider        TEXT NOT NULL DEFAULT 'cloudflare',
-        zone_id         TEXT,
-        url             TEXT NOT NULL,
-        state           TEXT NOT NULL CHECK (state IN ('pending', 'purged', 'failed', 'skipped')),
-        detail          TEXT,
-        attempts        INTEGER NOT NULL DEFAULT 0,
-        next_attempt_at INTEGER NOT NULL DEFAULT 0,
-        created_at      INTEGER NOT NULL,
-        done_at         INTEGER
-    );
-    -- One pending purge per URL: a sitemap shared by many removals is purged once per batch.
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_cdn_purges_pending ON cdn_purges (zone_id, url) WHERE state = 'pending';
-    CREATE INDEX IF NOT EXISTS idx_cdn_purges_due ON cdn_purges (state, next_attempt_at, seq);
-    `);
-}
-
 /** The zone a URL belongs to: exact host or a parent domain in the map, longest first. */
 function zoneFor(url, zones) {
     let u;
@@ -254,4 +218,4 @@ function createPurger({ db, config, fetchImpl = globalThis.fetch, log = console,
     return { start, stop, flush, running: () => Boolean(timer) };
 }
 
-module.exports = { ensureSchema, createPurgeQueue, createPurger, zoneFor, purgeUrls, MAX_ATTEMPTS, FILES_PER_CALL };
+module.exports = { createPurgeQueue, createPurger, zoneFor, purgeUrls, MAX_ATTEMPTS, FILES_PER_CALL };

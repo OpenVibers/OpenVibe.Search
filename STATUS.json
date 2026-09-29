@@ -4,7 +4,7 @@
   "code": true,
   "wave": "W14",
   "plan": "OpenVibe End-to-End Realignment & Implementation Plan, revision 3 (20 Sep 2026)",
-  "runtime": "node 22, express, better-sqlite3 (FTS5)",
+  "runtime": "node 22, express, PostgreSQL full-text search (openvibe-sdk/db)",
   "port": 4710,
   "domain": "search.openvibe.network (vhost in deploy/nginx; the service manifest records the search page and query API as public since 2026-09-23)",
   "contracts": "openvibe-contracts v0.76.0",
@@ -17,14 +17,14 @@
   "contractsProposed": [
     "search.index-document@1 (released in openvibe-contracts v0.12.0)"
   ],
-  "engine": "sqlite-fts5 (docs/adr-engine.md)",
+  "engine": "postgresql-fts (docs/adr-engine.md)",
   "deployed": true,
   "deployment": "Deployed with `sudo ovhost deploy search`: /opt/openvibe.search, unit openvibe-search, 127.0.0.1:4710, principal search, Events subscription *.index_document.*, accepted event owners sources, wiki, blog, news, reviews, trade, deals, coupons. On 2026-09-23 the production index held 10 documents, all tombstones (wiki), 0 public. Restore drill passed 2026-09-23.",
   "indexedProducers": [
     "wiki (tombstones only so far)"
   ],
   "features": [
-    "ACL-filtered FTS5 query API",
+    "ACL-filtered full-text query API",
     "facets",
     "suggestions",
     "freshness-weighted ranking",

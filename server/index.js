@@ -22,7 +22,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     // PostgreSQL (ADR-035): opened and migrated here unless the caller (a test) hands in a migrated handle.
     const db = givenDb || await openDb(config, { log });
     const engine = createEngine(db, { freshness: config.freshness });
-    // The index is derived from documents: rebuilt when it disagrees (after the one-time import from SQLite).
+    // The index is derived from documents: rebuilt at boot when it disagrees with the documents table.
     const rebuilt = await engine.reconcile();
     if (rebuilt.rebuilt) log.log(`[search] full-text index rebuilt: ${rebuilt.rebuilt} document(s)`);
     const outbox = createOutbox(db, { source: config.serviceId, now });

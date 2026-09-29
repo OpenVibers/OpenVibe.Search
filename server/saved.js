@@ -13,24 +13,6 @@ const { ids } = require('openvibe-contracts');
 
 const ID_RE = /^svs_[0-9a-z]{26}$/;
 
-function ensureSchema(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS saved_searches (
-        id           TEXT PRIMARY KEY,
-        subject      TEXT NOT NULL,                  -- usr_… (the person who saved it)
-        name         TEXT NOT NULL,
-        q            TEXT NOT NULL DEFAULT '',
-        filters      TEXT NOT NULL,                  -- canonical JSON {owner,type,language,facets}
-        query_hash   TEXT NOT NULL,                  -- same query saved twice = one row
-        created_at   INTEGER NOT NULL,
-        updated_at   INTEGER NOT NULL,
-        last_run_at  INTEGER,
-        UNIQUE (subject, query_hash)
-    );
-    CREATE INDEX IF NOT EXISTS idx_saved_searches_subject ON saved_searches (subject, created_at);
-    `);
-}
-
 /** Filters in one canonical shape, so equal queries hash equally whatever order they came in. */
 function canonicalFilters(f) {
     const out = {};
@@ -111,4 +93,4 @@ function createSavedSearches(db, { maxPerSubject = 50, now = () => Date.now() } 
     };
 }
 
-module.exports = { ensureSchema, createSavedSearches, canonicalFilters, ID_RE };
+module.exports = { createSavedSearches, canonicalFilters, ID_RE };
