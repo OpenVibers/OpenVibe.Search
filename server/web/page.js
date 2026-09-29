@@ -5,15 +5,21 @@
  * indexable documents only; an ov_token cookie for this host adds its person's ACL matches).
  *
  *   GET /             search form; ?q= results, ?owner= / ?type= filters, ?cursor= next page
- *   GET /robots.txt   the front page may be crawled, result pages and the API not
+ *   GET /robots.txt   the front page and /updates may be crawled, result pages and the API not
+ *   GET /llms.txt     what this site is, its public pages and its public endpoints (openvibe-shared/seo)
+ *   GET /sitemap.xml  the public pages, with lastmod from the newest public document (never the clock)
  *
  * Every answer is no-store (a document that leaves the index leaves this page at once) and result
  * pages are noindex. Clients that do not ask for HTML get the plain-text route index at /.
  */
 const express = require('express');
 const ovServe = require('openvibe-shared/serve');
+const seo = require('openvibe-shared/seo');
 const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
+
+const SITE_NAME = 'OpenVibe.Search';
+const SITE_DESCRIPTION = "Search what the OpenVibe network's services have published.";
 
 // The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; its init is
 // /frame-init.js (same origin, no inline script), reading the JSON config in #ov-frame-config.
@@ -76,7 +82,67 @@ const TEXT_INDEX = [
     '',
 ].join('\n');
 
-function layout({ title, q, owner, type, body, noindex, canonical }) {
+/**
+ * The home page's JSON-LD: the WebSite (with the sitelinks SearchAction that is this site's whole
+ * purpose) and OpenVibe.Search as the web application it is. Nothing private: both nodes describe
+ * the public front page only.
+ */
+function homeJsonLd(origin) {
+    return [
+        seo.jsonLd.website({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, searchUrl: `${origin}/?q={q}` }),
+        seo.jsonLd.softwareApp({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, category: 'SearchApplication' }),
+    ];
+}
+
+/** robots.txt: the same Disallows this site already had, plus the sitemap and the AI/search bots by name. */
+function robotsTxt(origin) {
+    return [
+        '# openvibe.search automated-consumer policy: search engines and AI crawlers may read the front',
+        '# page and the update log. Result pages carry their own X-Robots-Tag: noindex, and the API, the',
+        '# Events webhook and owner writes are not for crawling.',
+        seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/'] }),
+    ].join('\n');
+}
+
+/** /llms.txt: what this site is, its public pages and its public machine-readable endpoints. */
+function llmsTxt(origin) {
+    return seo.llmsTxt({
+        name: SITE_NAME,
+        summary: `The search service of the OpenVibe network: one permission-aware index over what the network's services have published. ${SITE_DESCRIPTION}`,
+        details: 'The index holds only what the services have sent so far (Alpha: it is young). Anonymous callers see public, published, indexable documents only; a browser with an ov_token cookie also gets that person\'s own restricted matches. Private, draft and deleted documents are never listed or returned, and a document that is removed or made private leaves the results at once. Result pages are noindex; this file lists pages and public endpoints only, never a person\'s saved searches or the owner API.',
+        sections: [
+            { title: 'Pages', links: [
+                { title: 'Search', url: `${origin}/`, note: 'the search page; ?q= and ?owner=/?type= search, results are noindex' },
+                { title: 'What shipped', url: `${origin}/updates`, note: "the site's update log" },
+            ] },
+            { title: 'Machine-readable', links: [
+                { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
+                { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
+                { title: 'Sitemap', url: `${origin}/sitemap.xml` },
+                { title: 'robots.txt', url: `${origin}/robots.txt` },
+                { title: 'Release', url: `${origin}/release.json`, note: 'the deployed release manifest (JSON)' },
+            ] },
+            { title: 'The network', links: [
+                { title: 'OpenVibe.Network', url: 'https://openvibe.network/', note: 'accounts and the network directory' },
+                { title: 'Source', url: 'https://github.com/OpenVibers/OpenVibe.Search' },
+            ] },
+        ],
+    });
+}
+
+/**
+ * /sitemap.xml over the public pages. lastmod comes from the data, never from the clock: the front
+ * page carries the newest content time among the public, indexable documents (so an empty index
+ * leaves it off), and /updates carries the deployed release's date.
+ */
+function sitemapXml(origin, { indexLastmod = null, releasedAt = null } = {}) {
+    const entries = [{ loc: `${origin}/`, ...(indexLastmod ? { lastmod: indexLastmod } : {}), changefreq: 'hourly', priority: 1.0 }];
+    if (releasedAt) entries.push({ loc: `${origin}/updates`, lastmod: releasedAt, changefreq: 'weekly', priority: 0.5 });
+    else entries.push({ loc: `${origin}/updates` });
+    return seo.sitemapXml(entries);
+}
+
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd }) {
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -85,7 +151,7 @@ function layout({ title, q, owner, type, body, noindex, canonical }) {
 <title>${esc(title)}</title>
 ${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}${canonical && !noindex ? `<link rel="canonical" href="${esc(canonical)}">\n` : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
 <meta name="color-scheme" content="light dark">
-${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n')}
+${jsonLd ? jsonLd + '\n' : ''}${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n')}
 <script src="${ovServe.url('theme-loader.js')}" defer></script>
 <script src="${ovServe.url('navbar.js')}" defer></script>
 <script src="${ovServe.url('footer.js')}" defer></script>
@@ -153,8 +219,10 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
     }).join('\n')}</ol>`;
 }
 
-/** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates. */
-function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network' }) {
+/** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates.
+ *  newestPublic() reads the newest content time among the public indexable documents (the sitemap's real
+ *  lastmod); releasedAt is the deployed release's date (/updates' lastmod). */
+function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
@@ -170,9 +238,23 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 
+    // Crawl files (openvibe-shared/seo): the existing robots rules kept, plus /llms.txt and /sitemap.xml.
     router.get('/robots.txt', (_req, res) => {
-        res.type('text/plain').set('Cache-Control', 'public, max-age=3600')
-            .send('User-agent: *\nAllow: /$\nAllow: /updates\nDisallow: /?\nDisallow: /api/\nDisallow: /internal/\n');
+        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(robotsTxt(origin));
+    });
+
+    router.get('/llms.txt', (_req, res) => {
+        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(llmsTxt(origin));
+    });
+
+    router.get('/sitemap.xml', async (_req, res, next) => {
+        let indexLastmod = null;
+        try {
+            indexLastmod = newestPublic ? await newestPublic() : null;
+        } catch (err) {
+            return next(err); // a sitemap that cannot read the index is not a sitemap of this site
+        }
+        res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(sitemapXml(origin, { indexLastmod, releasedAt }));
     });
 
     router.get('/', async (req, res, next) => {
@@ -220,10 +302,12 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
                 body = `<p class="empty">${esc(err.message)}.</p>`;
             }
         }
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/` }));
+        // JSON-LD only where the page may be indexed: the plain front page, never a result page.
+        const jsonLd = searching || status !== 200 ? null : homeJsonLd(origin).map(seo.jsonLdTag).join('\n');
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd }));
     });
 
     return router;
 }
 
-module.exports = { pageRouter, TEXT_INDEX };
+module.exports = { pageRouter, TEXT_INDEX, robotsTxt, llmsTxt, sitemapXml, homeJsonLd };

@@ -57,8 +57,9 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
     app.use(documentsRouter({ store, auth, db, relay, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
-    // GET / (HTML search page for browsers, the text route index otherwise) and /robots.txt.
-    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl }));
+    // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
+    // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
+    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at }));
 
     app.use((req, res) => http.sendProblem(res, 404, 'search.not_found', { detail: `no route ${req.method} ${req.path}`, ctx: req.ov }));
 

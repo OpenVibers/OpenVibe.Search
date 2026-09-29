@@ -38,6 +38,7 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
             SUM(CASE WHEN exposure = 3 THEN 1 ELSE 0 END) AS public_listed,
             SUM(CASE WHEN exposure = 2 THEN 1 ELSE 0 END) AS public_unlisted,
             SUM(CASE WHEN exposure = 1 THEN 1 ELSE 0 END) AS restricted FROM documents`),
+        newestPublic: db.prepare(`SELECT MAX(NULLIF(sort_at, '')) AS lastmod FROM documents WHERE deleted = 0 AND exposure = 3`),
     };
 
     function rowValues(doc, hash, { via, eventId }) {
@@ -197,7 +198,14 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
         };
     }
 
-    return { apply, remove, get, byRid, ownerPage, counts, EXPOSURE_NAME };
+    /** The newest content time among the public, indexable documents, ISO 8601, or null on an empty
+     *  index. This is what the sitemap's front-page lastmod is: a real time from the data, not now(). */
+    async function newestPublic() {
+        const row = await st.newestPublic.get();
+        return row && row.lastmod ? String(row.lastmod) : null;
+    }
+
+    return { apply, remove, get, byRid, ownerPage, counts, newestPublic, EXPOSURE_NAME };
 }
 
 module.exports = { createStore, EXPOSURE_NAME };

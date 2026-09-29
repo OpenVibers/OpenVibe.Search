@@ -44,11 +44,16 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed');
     const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
     for (const [, attrs, body] of scripts) {
-        if (/type="application\/json"/.test(attrs)) continue;
+        if (/type="application\/(json|ld\+json)"/.test(attrs)) continue;
         assert.strictEqual(body.trim(), '', 'no inline JavaScript');
         const src = (/src="([^"]+)"/.exec(attrs) || [])[1];
         assert.ok(src && (src.startsWith('/') || src.startsWith('https://openvibe.network/')), `script from this site or openvibe.network: ${src}`);
     }
+    // JSON-LD on the front page only: the WebSite (with its SearchAction) and the search application.
+    const ld = [...r.text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication']);
+    assert.strictEqual(ld[0].potentialAction.target.urlTemplate.endsWith('/?q={search_term_string}'), true);
+    assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
     assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
     assert.ok(r.text.includes('data-ov-shipped="latest" data-service="search" href="/updates"'), 'what shipped');
 });
