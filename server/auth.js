@@ -102,8 +102,9 @@ function createAuth({ config, jwks, log = console }) {
         let keys;
         try {
             keys = await jwks.keysForKid(kid);
-        } catch (err) {
-            // The SDK's message names the internal JWKS URL and the fetch error: the client logs it, nobody is told.
+        } catch {
+            // The SDK's error can contain the internal URL or other sensitive details.
+            log.warn('[auth] JWKS key lookup failed; signing key not loaded yet');
             return { ok: false, code: 'token.unavailable', reason: 'signing key not loaded yet' };
         }
         // The key the token names, else every key (a kid-less token, or a document without kids); first verdict that

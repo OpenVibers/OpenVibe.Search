@@ -4,6 +4,7 @@
 // verifies, the cached keys keep verifying through a stub outage (an unknown kid forces a refetch),
 // and /api/ready reports the client's state.
 const assert = require('assert');
+const { createAuth } = require('../server/auth');
 const { boot, request, serviceToken, userToken, doc, suite, jwksDocument } = require('./helpers');
 
 const t = suite('jwks');
@@ -15,6 +16,21 @@ const jwksFetch = async () => {
     return { ok: true, status: 200, json: async () => jwksDocument() };
 };
 const write = (token, d) => request(svc.base, 'PUT', `/api/v1/documents/wiki/page/${d.id}`, { token, body: d });
+
+t('a failed service-token key lookup logs a safe diagnostic and keeps the unavailable result', async () => {
+    const warnings = [];
+    const token = serviceToken('wiki', ['search.document.write']);
+    const auth = createAuth({
+        config: {},
+        jwks: { keysForKid: async () => { throw new Error(`secret-value ${token} https://network.internal/api/.well-known/jwks`); } },
+        log: { warn: (message) => warnings.push(message) },
+    });
+    assert.deepStrictEqual(await auth.verifyService(token), {
+        ok: false, code: 'token.unavailable', reason: 'signing key not loaded yet',
+    });
+    assert.deepStrictEqual(warnings, ['[auth] JWKS key lookup failed; signing key not loaded yet']);
+    assert.ok(!warnings[0].includes(token) && !warnings[0].includes('secret-value') && !warnings[0].includes('network.internal'));
+});
 
 t('a token signed by a key from the stub JWKS verifies', async () => {
     svc = await boot({ jwksFetch });
