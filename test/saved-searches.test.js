@@ -59,7 +59,7 @@ t('a person saves a query with filters; the same query again is the same saved s
     assert.strictEqual(list.status, 200);
     assert.deepStrictEqual(list.body.saved_searches.map(s => s.id), [saved.id]);
     assert.strictEqual(list.body.max, 3);
-    assert.strictEqual(list.headers.get('cache-control'), 'no-store');
+    assert.strictEqual(list.headers.get('cache-control'), 'private, no-store');
 });
 
 t('running a saved search queries as the person now, with its filters', async () => {

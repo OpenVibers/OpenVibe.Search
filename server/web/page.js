@@ -9,12 +9,13 @@
  *   GET /llms.txt     what this site is, its public pages and its public endpoints (openvibe-shared/seo)
  *   GET /sitemap.xml  the public pages, with lastmod from the newest public document (never the clock)
  *
- * Every answer is no-store (a document that leaves the index leaves this page at once) and result
+ * Search answers are no-store (a document that leaves the index leaves this page at once) and result
  * pages are noindex. Clients that do not ask for HTML get the plain-text route index at /.
  */
 const express = require('express');
 const ovServe = require('openvibe-shared/serve');
 const seo = require('openvibe-shared/seo');
+const cache = require('openvibe-shared/cache-policy');
 const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
 
@@ -233,25 +234,25 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
-    router.get('/frame-init.js', (_req, res) => {
-        res.type('application/javascript').set('Cache-Control', 'public, max-age=3600').send(FRAME_INIT);
+    router.get('/frame-init.js', (req, res) => {
+        res.type('application/javascript').set('Cache-Control', cache.assetHeaders(req.path, { hashed: false })).send(FRAME_INIT);
     });
 
     // What shipped on OpenVibe.Search: the shared update log every OpenVibe site has.
     router.get('/updates', (_req, res) => {
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.setHeader('Cache-Control', cache.htmlHeaders({ maxAge: 60 }));
         res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 
     // Crawl files (openvibe-shared/seo): the existing robots rules kept, plus /llms.txt and /sitemap.xml.
     router.get('/robots.txt', (_req, res) => {
-        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(robotsTxt(origin));
+        res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(robotsTxt(origin));
     });
 
     router.get('/llms.txt', (_req, res) => {
-        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(llmsTxt(origin));
+        res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(llmsTxt(origin));
     });
 
     router.get('/sitemap.xml', async (_req, res, next) => {
@@ -261,12 +262,12 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         } catch (err) {
             return next(err); // a sitemap that cannot read the index is not a sitemap of this site
         }
-        res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(sitemapXml(origin, { indexLastmod, releasedAt }));
+        res.type('application/xml').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(sitemapXml(origin, { indexLastmod, releasedAt }));
     });
 
     router.get('/', async (req, res, next) => {
         const wantsHtml = /\btext\/html\b/.test(String(req.get('accept') || ''));
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Cache-Control', cache.htmlHeaders({ private: true }));
         res.setHeader('Vary', 'Accept, Cookie');
         if (!wantsHtml) return res.type('text/plain').send(TEXT_INDEX);
 
