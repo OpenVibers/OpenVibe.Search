@@ -32,7 +32,7 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     const canon = r.text.match(/<link rel="canonical" href="([^"]+)">/g) || [];
     assert.strictEqual(canon.length, 1);
     assert.match(canon[0], /href="https?:\/\/[^"/]+\/">$/);
-    assert.strictEqual(r.headers.get('cache-control'), 'no-store');
+    assert.strictEqual(r.headers.get('cache-control'), 'private, no-store');
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
     // The OpenVibe Frame (navbar, footer, shipped views) is the only script: from this site or
     // openvibe.network, never inline JavaScript (the Frame's config is a JSON data block).

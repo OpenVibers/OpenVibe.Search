@@ -18,6 +18,7 @@
  */
 const crypto = require('crypto');
 const express = require('express');
+const cache = require('openvibe-shared/cache-policy');
 const { http } = require('openvibe-contracts');
 const { toMatch, snippetHtml } = require('../engine/pg');
 const { EXPOSURE } = require('../document');
@@ -179,7 +180,7 @@ function withViewer(auth, handler, limit = null) {
         }
         // Never cached: a visibility change or deletion must leave results immediately, and a
         // personalised answer must never reach a shared cache.
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Cache-Control', cache.htmlHeaders({ private: true }));
         res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
         const run = async () => {
             try {

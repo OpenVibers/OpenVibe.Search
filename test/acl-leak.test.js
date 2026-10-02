@@ -94,7 +94,7 @@ t('a signed-in stranger sees exactly what anonymous sees in results', async () =
     const r = await q(`q=${SECRET}&facets=category`, asUser(mallory));
     assert.deepStrictEqual(idsOf(r), ['pub']);
     assertNoLeak(r, ['pub']);
-    assert.strictEqual(r.headers.get('cache-control'), 'no-store');
+    assert.strictEqual(r.headers.get('cache-control'), 'private, no-store');
 });
 
 t('the ACL subject sees its private and unlisted documents, never drafts, unpublished or deleted', async () => {

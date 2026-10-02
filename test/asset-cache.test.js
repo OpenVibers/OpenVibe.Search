@@ -32,6 +32,14 @@ t('a wrong-but-hex ?v= and no ?v= are a short public window, never pinned', asyn
     }
 });
 
+t('the unversioned Frame init uses the shared asset policy even with a version query', async () => {
+    for (const p of ['/frame-init.js', '/frame-init.js?v=deadbeefdeadbeef']) {
+        const r = await request(svc.base, 'GET', p);
+        assert.strictEqual(r.status, 200, p);
+        assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=300, stale-while-revalidate=86400', p);
+    }
+});
+
 t('the crawl files and the update log use the estate HTML policy', async () => {
     for (const [p, expected] of [
         ['/robots.txt', 'public, max-age=3600, stale-while-revalidate=3600'],

@@ -9,7 +9,7 @@
  *   GET /llms.txt     what this site is, its public pages and its public endpoints (openvibe-shared/seo)
  *   GET /sitemap.xml  the public pages, with lastmod from the newest public document (never the clock)
  *
- * Every answer is no-store (a document that leaves the index leaves this page at once) and result
+ * Search answers are no-store (a document that leaves the index leaves this page at once) and result
  * pages are noindex. Clients that do not ask for HTML get the plain-text route index at /.
  */
 const express = require('express');
@@ -234,8 +234,8 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
-    router.get('/frame-init.js', (_req, res) => {
-        res.type('application/javascript').set('Cache-Control', 'public, max-age=3600').send(FRAME_INIT);
+    router.get('/frame-init.js', (req, res) => {
+        res.type('application/javascript').set('Cache-Control', cache.assetHeaders(req.path, { hashed: false })).send(FRAME_INIT);
     });
 
     // What shipped on OpenVibe.Search: the shared update log every OpenVibe site has.
@@ -267,7 +267,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
 
     router.get('/', async (req, res, next) => {
         const wantsHtml = /\btext\/html\b/.test(String(req.get('accept') || ''));
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Cache-Control', cache.htmlHeaders({ private: true }));
         res.setHeader('Vary', 'Accept, Cookie');
         if (!wantsHtml) return res.type('text/plain').send(TEXT_INDEX);
 
