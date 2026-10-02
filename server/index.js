@@ -13,6 +13,7 @@ const { createEngine } = require('./engine/pg');
 const { createStore } = require('./store');
 const { createOutbox, createRelay } = require('./events/outbox');
 const { jwksClient } = require('openvibe-sdk/auth');
+const { gracefulStop } = require('openvibe-sdk/service');
 const { createAuth } = require('./auth');
 const { createPurgeQueue, createPurger } = require('./purge');
 const { createSavedSearches } = require('./saved');
@@ -79,13 +80,10 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
 if (require.main === module) {
     require('dotenv').config();
     start().then((handles) => {
-        const shutdown = (sig) => {
-            console.log(`[search] ${sig}: shutting down`);
-            handles.close().then(() => process.exit(0), () => process.exit(1));
-            setTimeout(() => process.exit(1), 10000).unref();
-        };
-        process.on('SIGTERM', () => shutdown('SIGTERM'));
-        process.on('SIGINT', () => shutdown('SIGINT'));
+        // SIGTERM/SIGINT (openvibe-sdk/service, docs/service.md's handles family): requests in flight get 8 s,
+        // then handles.close() (the prune timer and JWKS refresher stopped, the relay and purger stopped, the
+        // server closed, the database closed; a rejection exits 1); past 10 s the process exits 1.
+        gracefulStop({ name: 'search', server: handles.server, handles, drainMs: 8000, deadlineMs: 10000 });
     }).catch((err) => {
         console.error(`[search] failed to start: ${err.stack || err}`);
         process.exit(1);
