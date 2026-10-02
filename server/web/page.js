@@ -15,6 +15,7 @@
 const express = require('express');
 const ovServe = require('openvibe-shared/serve');
 const seo = require('openvibe-shared/seo');
+const cache = require('openvibe-shared/cache-policy');
 const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
 
@@ -241,17 +242,17 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     router.get('/updates', (_req, res) => {
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('Cache-Control', 'public, max-age=60');
+        res.setHeader('Cache-Control', cache.htmlHeaders({ maxAge: 60 }));
         res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 
     // Crawl files (openvibe-shared/seo): the existing robots rules kept, plus /llms.txt and /sitemap.xml.
     router.get('/robots.txt', (_req, res) => {
-        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(robotsTxt(origin));
+        res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(robotsTxt(origin));
     });
 
     router.get('/llms.txt', (_req, res) => {
-        res.type('text/plain').set('Cache-Control', 'public, max-age=3600').send(llmsTxt(origin));
+        res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(llmsTxt(origin));
     });
 
     router.get('/sitemap.xml', async (_req, res, next) => {
@@ -261,7 +262,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         } catch (err) {
             return next(err); // a sitemap that cannot read the index is not a sitemap of this site
         }
-        res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(sitemapXml(origin, { indexLastmod, releasedAt }));
+        res.type('application/xml').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(sitemapXml(origin, { indexLastmod, releasedAt }));
     });
 
     router.get('/', async (req, res, next) => {

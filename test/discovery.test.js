@@ -26,7 +26,7 @@ t('GET /llms.txt: what the site is, its public pages and its public endpoints, c
     const r = await request(svc.base, 'GET', '/llms.txt');
     assert.strictEqual(r.status, 200);
     assert.match(r.headers.get('content-type'), /text\/plain/);
-    assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600');
+    assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600, stale-while-revalidate=3600');
     assert.match(r.text, /^# OpenVibe\.Search/m);
     assert.ok(r.text.includes(`- [Search](${origin()}/)`), 'the front page');
     assert.ok(r.text.includes(`(${origin()}/updates)`), 'the update log');
@@ -40,7 +40,7 @@ t('GET /robots.txt: every existing Disallow kept, plus the sitemap and the AI/se
     const r = await request(svc.base, 'GET', '/robots.txt');
     assert.strictEqual(r.status, 200);
     assert.match(r.headers.get('content-type'), /text\/plain/);
-    assert.match(r.headers.get('cache-control'), /max-age=3600/);
+    assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600, stale-while-revalidate=3600');
     for (const d of ['/?', '/api/', '/internal/']) assert.ok(r.text.includes(`Disallow: ${d}`), `kept Disallow: ${d}`);
     assert.ok(r.text.includes('Allow: /$') && r.text.includes('Allow: /updates'), 'the crawlable pages');
     assert.ok(r.text.includes(`Sitemap: ${origin()}/sitemap.xml`));
@@ -51,7 +51,7 @@ t('GET /sitemap.xml: the public pages, lastmod from the newest public document, 
     const r = await request(svc.base, 'GET', '/sitemap.xml');
     assert.strictEqual(r.status, 200);
     assert.match(r.headers.get('content-type'), /application\/xml/);
-    assert.match(r.headers.get('cache-control'), /max-age=3600/);
+    assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600, stale-while-revalidate=3600');
     assert.ok(r.text.includes(`<loc>${origin()}/</loc>`), 'the front page');
     assert.ok(r.text.includes(`<loc>${origin()}/updates</loc>`), 'the update log');
     // The front page's lastmod is the newest PUBLIC document's time — not the clock, and not the
