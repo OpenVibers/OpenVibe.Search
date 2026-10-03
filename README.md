@@ -112,9 +112,10 @@ every run is a fresh query as that person at that moment, so what they lost acce
 deleted) is gone and what they gained appears. Someone else's saved search is the same 404 as a
 missing one; guests cannot save; a cookie-authenticated POST/DELETE must carry this origin's
 `Origin`. Notifications of new matches wait for OpenVibe.Network's notifications (`last_run_at` is
-kept for that job). Signing in on `search.openvibe.network` itself needs a Network OAuth client
-(`search`), which does not exist yet: today saved searches are used through Bearer tokens or a
-product acting for its visitor.
+kept for that job), deferred to plan tracks T9/T11; the notifying job will need the
+`network.notifications.push` capability. Signing in on `search.openvibe.network` itself needs a
+Network OAuth client (`search`), which does not exist yet: today saved searches are used through
+Bearer tokens or a product acting for its visitor.
 
 ## Indexing
 
