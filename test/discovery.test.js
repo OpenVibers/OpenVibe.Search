@@ -6,8 +6,10 @@
  * rules the site already had, and never name a private path or a private document.
  */
 const assert = require('assert');
+const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
 const { boot, request, doc, suite } = require('./helpers');
+const { llmsFullTxt } = require('../server/web/page');
 
 const t = suite('discovery');
 let svc;
@@ -62,6 +64,61 @@ t('GET /sitemap.xml: the public pages, lastmod from the newest public document, 
     assert.strictEqual(front[2], '2026-09-10');
     assert.ok(!r.text.includes('2026-09-20'), 'the private document never moves the sitemap');
     for (const p of ['/api/', '/internal/', '/?', 'openvibe.wiki']) assert.ok(!r.text.includes(p), `no ${p}`);
+});
+
+t('GET /llms-full.txt: text/plain, the public routes and JSON endpoints, one line each, nothing private', async () => {
+    const r = await request(svc.base, 'GET', '/llms-full.txt');
+    assert.strictEqual(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/plain/);
+    assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600, stale-while-revalidate=3600');
+    // Every public route and public JSON endpoint is named.
+    for (const p of ['/', '/updates', '/robots.txt', '/sitemap.xml', '/llms.txt', '/llms-full.txt',
+        '/api/v1/search?q=', '/api/v1/suggest?q=', '/api/health', '/api/ready', '/release.json']) {
+        assert.ok(r.text.includes(`${origin()}${p}`), `names ${p}`);
+    }
+    // One line of text each: every route line carries a description after the URL.
+    assert.match(r.text, /URL: \S+\n\n?\S/, 'a one-line description follows each URL');
+    // Nothing private or per-user, and never search results or document data.
+    assert.ok(!/saved-searches|\/api\/v1\/owners|\/internal\/events|\/api\/v1\/documents/.test(r.text));
+    assert.ok(!r.text.includes('crawl-pub') && !r.text.includes('Published page'), 'no document or result data');
+});
+
+t('GET /<key>.txt: 404 when INDEXNOW_KEY is unset', async () => {
+    const r = await request(svc.base, 'GET', '/no-indexnow-key.txt');
+    assert.strictEqual(r.status, 404);
+});
+
+t('GET /<key>.txt: the IndexNow key file answers when INDEXNOW_KEY is set', async () => {
+    const key = crypto.randomBytes(16).toString('hex');
+    const on = await boot({ env: { INDEXNOW_KEY: key } });
+    try {
+        const r = await request(on.base, 'GET', `/${key}.txt`);
+        assert.strictEqual(r.status, 200);
+        assert.match(r.headers.get('content-type'), /text\/plain/);
+        assert.strictEqual(r.text, key);
+        // Another path is not the key file.
+        const other = await request(on.base, 'GET', '/not-the-key.txt');
+        assert.strictEqual(other.status, 404);
+    } finally { await on.stop(); }
+});
+
+t('GET /<key>.txt: a malformed INDEXNOW_KEY leaves the key file off without stopping boot', async () => {
+    const on = await boot({ env: { INDEXNOW_KEY: 'bad key!' } });
+    try {
+        const health = await request(on.base, 'GET', '/api/health');
+        assert.strictEqual(health.status, 200);
+        const r = await request(on.base, 'GET', '/bad key!.txt');
+        assert.strictEqual(r.status, 404);
+    } finally { await on.stop(); }
+});
+
+t('the route index is built from routes only: every entry gets a line of text, none is private', async () => {
+    const text = llmsFullTxt(origin());
+    const urls = text.match(/^URL: (.+)$/gm);
+    assert.ok(urls && urls.length >= 8, 'the public routes and JSON endpoints are listed');
+    // Each route is followed by a non-empty line of text, and nothing private or per-user appears.
+    assert.match(text, /URL: \S+\n\n?\S/, 'a one-line description follows each URL');
+    assert.ok(!/saved-searches|\/api\/v1\/owners|\/internal\/events|\/api\/v1\/documents/.test(text));
 });
 
 t('shutdown', async () => { await svc.stop(); });

@@ -36,6 +36,7 @@ t('the crawl files and the update log use the estate HTML policy', async () => {
     for (const [p, expected] of [
         ['/robots.txt', 'public, max-age=3600, stale-while-revalidate=3600'],
         ['/llms.txt', 'public, max-age=3600, stale-while-revalidate=3600'],
+        ['/llms-full.txt', 'public, max-age=3600, stale-while-revalidate=3600'],
         ['/sitemap.xml', 'public, max-age=3600, stale-while-revalidate=3600'],
         ['/updates', 'public, max-age=60, stale-while-revalidate=3600'],
     ]) {
