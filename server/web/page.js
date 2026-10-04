@@ -27,32 +27,31 @@ const SITE_DESCRIPTION = "Search what the OpenVibe network's services have publi
 let RELEASE = 'dev';
 function setRelease(id) { if (id) RELEASE = String(id); }
 
-// The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; its init is
-// /frame-init.js (same origin, no inline script), reading the JSON config in #ov-frame-config.
+// The OpenVibe Frame (navbar, footer, "shipped" views, themes) comes from openvibe.network; openvibe-shared/shell
+// renders the document and boots the navbar from one inline script, and FOOTER_INIT upgrades the footer.
 const NETWORK = 'https://openvibe.network';
 // Cloudflare Web Analytics: Cloudflare injects its beacon at the edge and the privacy text says it may measure
 // performance; script-src loads the beacon, connect-src is where it reports.
 const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://cloudflareinsights.com';
 // The Events realtime stream: release notifications (release-watch's EventSource, openvibe-shared 1.17).
 const EVENTS = 'https://events.openvibe.network';
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const shell = require('openvibe-shared/shell');
 const frame = require('openvibe-shared/frame');
-const FRAME_INIT = `(function () {
-  var tries = 0;
-  function boot() {
-    if (!window.OpenVibeNavbar || !window.OpenVibeFooter) { if (++tries < 60) setTimeout(boot, 100); return; }
-    var el = document.getElementById('ov-frame-config'); var cfg = {};
-    try { cfg = JSON.parse(el ? el.textContent : '{}'); } catch (e) { /* */ }
-    try { if (cfg.navbar) OpenVibeNavbar.init(cfg.navbar); } catch (e) { /* the Frame is optional */ }
-    try { if (cfg.footer) OpenVibeFooter.init(cfg.footer); } catch (e) { /* */ }
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-})();
-`;
-const FRAME_CONFIG = {
-    navbar: { service: 'search', apiBase: NETWORK, links: [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }] },
-    footer: { service: 'search', variant: 'compact', mount: '#ov-footer', brandName: 'OpenVibe.Search', updates: '/updates' },
+const LINKS = [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }];
+// The shell options every page shares: the navbar it boots and the noscript nav and footer it renders.
+const FRAME = {
+    name: SITE_NAME, lang: 'en', navLinks: LINKS,
+    navbar: { service: 'search', apiBase: NETWORK, links: LINKS },
+    footer: { service: 'search', variant: 'compact', updates: '/updates' },
 };
+const FOOTER = { service: 'search', variant: 'compact', mount: '#ov-footer', brandName: SITE_NAME, updates: '/updates' };
+const FOOTER_INIT = `window.addEventListener('DOMContentLoaded', function () { try { OpenVibeFooter.init(${JSON.stringify(FOOTER).replace(/</g, '\\u003c')}); } catch (e) { /* the Frame is optional */ } });`;
+// The two inline scripts are constant (the shell's boot depends only on FRAME), so script-src allows exactly
+// them by hash and still has no 'unsafe-inline'.
+const sha256 = (js) => `'sha256-${require('crypto').createHash('sha256').update(js, 'utf8').digest('base64')}'`;
+const INLINE = [...shell.scripts(FRAME).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).concat(FOOTER_INIT);
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const ICON_LINKS = require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -149,22 +148,20 @@ function sitemapXml(origin, { indexLastmod = null, releasedAt = null } = {}) {
 }
 
 function layout({ title, q, owner, type, body, noindex, canonical, jsonLd }) {
-    return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
-${noindex ? '<meta name="robots" content="noindex, nofollow">\n' : ''}${canonical && !noindex ? `<link rel="canonical" href="${esc(canonical)}">\n` : ''}<meta name="description" content="Search what the OpenVibe network's services have published.">
-<meta name="color-scheme" content="light dark">
-${jsonLd ? jsonLd + '\n' : ''}${require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n')}
-<script src="${ovServe.url('theme-loader.js')}" defer></script>
-<script src="${ovServe.url('navbar.js')}" defer></script>
-<script src="${ovServe.url('footer.js')}" defer></script>
-<script src="/frame-init.js" defer></script>
-<meta name="ov-boost" content="search@${esc(RELEASE)}">
-<script src="${ovServe.url('boost.js')}" data-main="#main" defer></script>
-<style>
+    const url = noindex ? undefined : canonical;
+    return shell.page({
+        ...FRAME,
+        title, description: SITE_DESCRIPTION, canonical: url, jsonLd,
+        robots: noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1',
+        // The AI summary (and its WebPage JSON-LD) only where the page may be indexed, like the rest of the JSON-LD.
+        ...(noindex ? {} : { summary: SITE_DESCRIPTION, url }),
+        head: [
+            '<meta name="color-scheme" content="light dark">',
+            ICON_LINKS,
+            `<meta name="ov-boost" content="search@${esc(RELEASE)}">`,
+            `<script src="${ovServe.url('boost.js')}" data-main="#main" defer></script>`,
+            `<script>${FOOTER_INIT}</script>`,
+            `<style>
 /* The network theme (the Frame's theme loader sets these tokens on <html>) wins; the values here are the
    defaults when it does not load. Search's own names follow them, so the page and the shared widgets
    (shipped.js, the navbar) always agree on background and text. */
@@ -190,11 +187,9 @@ mark { background: var(--mark); color: inherit; }
 .more { display: inline-block; margin-top: 16px; color: var(--accent); }
 .page-note { margin-top: 40px; color: var(--muted); font-size: .85rem; }
 .page-note a { color: inherit; }
-</style>
-</head>
-<body>
-<div id="navbar-mount"></div>
-${frame.noscriptNav({ name: 'OpenVibe.Search', links: [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }] })}
+</style>`,
+        ].join('\n'),
+        body: `<div id="navbar-mount"></div>
 <main id="main">
 <h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>
@@ -208,12 +203,9 @@ ${body}
 JSON API: <a href="/api/v1/search?q=${encodeURIComponent(q || '')}">/api/v1/search</a>.
 Source: <a href="https://github.com/OpenVibers/OpenVibe.Search">OpenVibers/OpenVibe.Search</a>.</p>
 </section>
-</main>
-${frame.footer({ service: 'search', variant: 'compact', updates: '/updates' })}
-<script type="application/json" id="ov-frame-config">${JSON.stringify(FRAME_CONFIG).replace(/</g, '\\u003c')}</script>
-</body>
-</html>
-`;
+</main>`,
+        bodyAttributes: { 'data-page': 'search' },
+    });
 }
 
 function resultsHtml(results) {
@@ -233,10 +225,6 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
 function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
-
-    router.get('/frame-init.js', (req, res) => {
-        res.type('application/javascript').set('Cache-Control', cache.assetHeaders(req.path, { hashed: false })).send(FRAME_INIT);
-    });
 
     // What shipped on OpenVibe.Search: the shared update log every OpenVibe site has.
     router.get('/updates', (_req, res) => {
@@ -311,7 +299,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             }
         }
         // JSON-LD only where the page may be indexed: the plain front page, never a result page.
-        const jsonLd = searching || status !== 200 ? null : homeJsonLd(origin).map(seo.jsonLdTag).join('\n');
+        const jsonLd = searching || status !== 200 ? null : homeJsonLd(origin);
         res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd }));
     });
 
