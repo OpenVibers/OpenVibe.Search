@@ -5,7 +5,8 @@
  *
  *   node scripts/subscribe.js [--endpoint http://127.0.0.1:4710/internal/events] [--pattern '*.index_document.*']
  *
- * Reads the environment (.env or /etc/openvibe/search.env):
+ * Reads the environment (`.env` here; the service itself gets /etc/openvibe/search.env from systemd,
+ * so on the box run `sudo node --env-file=/etc/openvibe/search.env scripts/subscribe.js …`):
  *   EVENTS_URL, OV_NETWORK_INTERNAL_URL, OV_OAUTH_CLIENT_ID, OV_OAUTH_CLIENT_SECRET  (the search
  *   principal needs events.subscription.manage for audience openvibe.events)
  *   SEARCH_EVENTS_SECRET  the delivery signing secret; the first value is handed to Events, so
@@ -26,7 +27,11 @@ const opt = (name, d) => { const i = args.indexOf(`--${name}`); return i >= 0 ? 
     const pattern = opt('pattern', '*.index_document.*');
     const secret = config.events.webhookSecrets[0];
     if (!config.events.url) throw new Error('EVENTS_URL is not set');
-    if (!secret || secret.length < 32) throw new Error('SEARCH_EVENTS_SECRET must be set (32+ characters) before subscribing');
+    // Events accepts a delivery secret of 32..256 characters and answers 422 for anything longer
+    // (POST /api/v1/subscriptions), so refuse it here before the token exchange, where it is visible.
+    if (!secret || secret.length < 32 || secret.length > 256) {
+        throw new Error('SEARCH_EVENTS_SECRET must be set (32 to 256 characters) before subscribing');
+    }
     if (!config.oauth.clientSecret) throw new Error('OV_OAUTH_CLIENT_SECRET is not set');
     const tokens = serviceAuth.createTokenClient({
         tokenUrl: `${config.networkInternalUrl}/oauth/token`,
