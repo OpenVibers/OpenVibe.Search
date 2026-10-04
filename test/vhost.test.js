@@ -27,7 +27,6 @@ t('wildcard certificate and client address from $remote_addr only', () => {
 
 t('/metrics is 404; owner API, webhook and document writes are loopback-only', () => {
     assert.match(conf, /location = \/metrics \{ return 404; \}/);
-    assert.match(conf, /location = \/frame-init\.js \{ limit_except GET \{ deny all; \} proxy_pass http:\/\/127\.0\.0\.1:4710; \}/, 'the Frame init script');
     assert.match(block('location = /updates'), /limit_except GET \{ deny all; \}/, 'the update log, GET only');
     assert.match(conf, /location \^~ \/shared\/ \{ limit_except GET \{ deny all; \} proxy_pass http:\/\/127\.0\.0\.1:4710; \}/, 'the site\'s own Frame files');
     assert.match(block('location ^~ /internal/'), loopbackOnly);

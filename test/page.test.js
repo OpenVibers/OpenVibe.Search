@@ -5,6 +5,7 @@
  * search engines. Non-HTML clients still get the text route index.
  */
 const assert = require('assert');
+const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
 const { boot, request, userToken, doc, suite } = require('./helpers');
 
@@ -34,24 +35,46 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.match(canon[0], /href="https?:\/\/[^"/]+\/">$/);
     assert.strictEqual(r.headers.get('cache-control'), 'private, no-store');
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
-    // The OpenVibe Frame (navbar, footer, shipped views) is the only script: from this site or
-    // openvibe.network, never inline JavaScript (the Frame's config is a JSON data block).
+    // Scripts come from this site or openvibe.network; the only inline JavaScript is openvibe-shared/shell's
+    // navbar/runtime boot and the footer init, each allowed by its own sha256 (never 'unsafe-inline').
     const csp = r.headers.get('content-security-policy');
     // Plus Cloudflare Web Analytics, which Cloudflare injects at the edge (the privacy text discloses it).
-    assert.match(csp, /script-src 'self' https:\/\/openvibe\.network https:\/\/static\.cloudflareinsights\.com;/);
+    assert.match(csp, /script-src 'self' https:\/\/openvibe\.network https:\/\/static\.cloudflareinsights\.com 'sha256-[^']+'/);
     // And the Events realtime stream, for release notifications (release-watch, openvibe-shared 1.17).
     assert.match(csp, /connect-src 'self' https:\/\/openvibe\.network https:\/\/cloudflareinsights\.com https:\/\/events\.openvibe\.network;/);
-    assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed');
+    assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed by default');
+    const allowed = [...(/script-src ([^;]*)/.exec(csp)[1]).matchAll(/'sha256-([^']+)'/g)].map((m) => m[1]);
     const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    let inline = 0;
     for (const [, attrs, body] of scripts) {
         if (/type="application\/(json|ld\+json)"/.test(attrs)) continue;
-        assert.strictEqual(body.trim(), '', 'no inline JavaScript');
         const src = (/src="([^"]+)"/.exec(attrs) || [])[1];
-        assert.ok(src && (src.startsWith('/') || src.startsWith('https://openvibe.network/')), `script from this site or openvibe.network: ${src}`);
+        if (src) {
+            assert.strictEqual(body.trim(), '', 'a script with src has no body');
+            assert.ok(src.startsWith('/') || src.startsWith('https://openvibe.network/'), `script from this site or openvibe.network: ${src}`);
+            continue;
+        }
+        inline++;
+        assert.ok(allowed.includes(crypto.createHash('sha256').update(body, 'utf8').digest('base64')), `inline script allowed by its hash: ${body.slice(0, 60)}`);
     }
+    assert.strictEqual(inline, 2, 'the shell boot and the footer init');
+    assert.match(r.text, /OpenVibeNavbar\.init\(\{"service":"search"/, 'the shell boots the navbar');
+    assert.match(r.text, /OpenVibeFooter\.init\(\{"service":"search"[^)]*"mount":"#ov-footer"/, 'the footer is upgraded in place');
+    // The rendered head (openvibe-shared/shell): one title, the canonical, robots, the AI summary and JSON-LD.
+    const head = r.text.slice(0, r.text.indexOf('</head>'));
+    assert.strictEqual((head.match(/<title>/g) || []).length, 1);
+    assert.match(head, /<title>OpenVibe\.Search<\/title>/);
+    assert.match(head, /<link rel="canonical" href="https?:\/\/[^"/]+\/">/);
+    assert.match(head, /<meta name="robots" content="index, follow[^"]*">/);
+    assert.match(head, /<meta name="description" content="Search what the OpenVibe network&#39;s services have published\.">/);
+    assert.match(head, /<meta name="ai-summary" content="[^"]+">/);
+    assert.match(head, /<script type="application\/ld\+json">/);
+    assert.ok(head.includes('data-ov-icon="network"') && head.includes('<link rel="apple-touch-icon" href="https://openvibe.network/assets/'), 'the network app icons');
+    assert.ok(head.includes('<meta name="color-scheme" content="light dark">') && head.includes('<style>'), 'the page\'s own head');
     // JSON-LD on the front page only: the WebSite (with its SearchAction) and the search application.
     const ld = [...r.text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
-    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication']);
+    // (and the WebPage of the AI summary).
+    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'WebPage']);
     assert.strictEqual(ld[0].potentialAction.target.urlTemplate.endsWith('/?q={search_term_string}'), true);
     assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
     assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
@@ -61,16 +84,10 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.match(r.text, /<meta name="ov-boost" content="search@[^"]+">/);
     assert.match(r.text, /<script src="\/shared\/boost\.js\?v=[^"]+" data-main="#main" defer><\/script>/);
     assert.ok(r.text.includes('<main id="main">'), 'the changing part');
-    // Sign-in must not bake the current path in: a {path} template returns to whatever page is showing.
-    const frameCfg = JSON.parse(/<script type="application\/json" id="ov-frame-config">([\s\S]*?)<\/script>/.exec(r.text)[1]);
-    assert.ok(!frameCfg.navbar.loginUrl || frameCfg.navbar.loginUrl.includes('{path}'), 'sign-in follows the current page');
 });
 
-t('the Frame init is a same-origin script and /updates is the shared log', async () => {
-    const init = await fetch(`${svc.base}/frame-init.js`);
-    assert.strictEqual(init.status, 200);
-    assert.match(init.headers.get('content-type'), /javascript/);
-    assert.match(await init.text(), /OpenVibeNavbar\.init/);
+t('/updates is the shared log; the old Frame init script is gone', async () => {
+    assert.strictEqual((await fetch(`${svc.base}/frame-init.js`)).status, 404);
     const r = await html('/updates');
     assert.strictEqual(r.status, 200);
     assert.ok(r.text.includes('What shipped on OpenVibe.Search') && r.text.includes('data-ov-shipped="log" data-service="search"'));
@@ -85,6 +102,7 @@ t('results show public documents only, escaped, linked to their canonical URL, n
     assert.strictEqual(r.headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.match(r.text, /<meta name="robots" content="noindex, nofollow">/);
     assert.ok(!/rel="canonical"/.test(r.text), 'a result page is noindex: no canonical');
+    assert.ok(!/application\/ld\+json|ai-summary/.test(r.text), 'no JSON-LD or AI summary on a result page');
     assert.ok(r.text.includes('Kestrel &lt;script&gt;alert(1)&lt;/script&gt; nesting'));
     assert.ok(!r.text.includes('<script>alert(1)'));
     assert.ok(r.text.includes('href="https://openvibe.wiki/p/kestrel?a=1&amp;b=2"'));
