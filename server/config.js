@@ -113,6 +113,11 @@ function load(env = process.env) {
             hour: Math.max(1, int(env.SEARCH_LIMITS_HOUR, 3000)),
         },
 
+        // IndexNow (openvibe-shared/indexnow): Search publishes no pages of its own to submit, so
+        // there is nothing to ping — only the key file is served, at /<key>.txt, when a key is set.
+        // Unset: off, nothing is mounted and nothing is ever sent.
+        indexnow: { key: String(env.INDEXNOW_KEY || '').trim() },
+
         // Removal purge queue (server/purge.js). Every removal is recorded for owners; the
         // Cloudflare purge of a formerly public URL runs only when the token is set.
         purge: {

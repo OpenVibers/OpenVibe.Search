@@ -7,6 +7,7 @@
  *   GET /             search form; ?q= results, ?owner= / ?type= filters, ?cursor= next page
  *   GET /robots.txt   the front page and /updates may be crawled, result pages and the API not
  *   GET /llms.txt     what this site is, its public pages and its public endpoints (openvibe-shared/seo)
+ *   GET /llms-full.txt the public routes and public JSON endpoints, one line of text each
  *   GET /sitemap.xml  the public pages, with lastmod from the newest public document (never the clock)
  *
  * Search answers are no-store (a document that leaves the index leaves this page at once) and result
@@ -136,6 +137,38 @@ function llmsTxt(origin) {
 }
 
 /**
+ * /llms-full.txt: the public route index and the public JSON endpoints, one line of text each, so an
+ * agent sees what this origin serves without fetching anything. It carries routes only — never a
+ * search result, a document or a person's data — and maxBytes caps it like the shared module's other
+ * full-text files (the list is fixed, so it sits far under the cap).
+ */
+function llmsFullTxt(origin) {
+    return seo.llmsFull({
+        site: SITE_NAME,
+        summary: `The public routes and public JSON endpoints of ${SITE_NAME}, one line each. ${SITE_DESCRIPTION}`,
+        base: origin,
+        maxBytes: 512 * 1024,
+        sections: [
+            { title: 'Public routes', pages: [
+                { title: 'Search page', url: `${origin}/`, text: 'The HTML search page; ?q=, ?owner= and ?type= search. Result pages are noindex.' },
+                { title: 'What shipped', url: `${origin}/updates`, text: "This site's update log." },
+                { title: 'robots.txt', url: `${origin}/robots.txt`, text: 'Crawl rules: the front page and /updates may be crawled, result pages and the API may not.' },
+                { title: 'Sitemap', url: `${origin}/sitemap.xml`, text: 'The public pages, with lastmod from the newest public document.' },
+                { title: 'llms.txt', url: `${origin}/llms.txt`, text: "This site's map for language-model crawlers." },
+                { title: 'llms-full.txt', url: `${origin}/llms-full.txt`, text: 'This file: the routes above and the JSON endpoints below, one line each.' },
+            ] },
+            { title: 'Public JSON endpoints', pages: [
+                { title: 'Search API', url: `${origin}/api/v1/search?q=`, text: 'JSON results; anonymous callers see public, published, indexable documents only.' },
+                { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, text: 'JSON title suggestions for the given prefix.' },
+                { title: 'Health', url: `${origin}/api/health`, text: 'Liveness: status, service and version (JSON).' },
+                { title: 'Readiness', url: `${origin}/api/ready`, text: 'Readiness of the database and the optional dependencies (JSON).' },
+                { title: 'Release', url: `${origin}/release.json`, text: 'The deployed release manifest (JSON).' },
+            ] },
+        ],
+    });
+}
+
+/**
  * /sitemap.xml over the public pages. lastmod comes from the data, never from the clock: the front
  * page carries the newest content time among the public, indexable documents (so an empty index
  * leaves it off), and /updates carries the deployed release's date.
@@ -243,6 +276,10 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(llmsTxt(origin));
     });
 
+    router.get('/llms-full.txt', (_req, res) => {
+        res.type('text/plain').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(llmsFullTxt(origin));
+    });
+
     router.get('/sitemap.xml', async (_req, res, next) => {
         let indexLastmod = null;
         try {
@@ -306,4 +343,4 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     return router;
 }
 
-module.exports = { pageRouter, setRelease, TEXT_INDEX, robotsTxt, llmsTxt, sitemapXml, homeJsonLd };
+module.exports = { pageRouter, setRelease, TEXT_INDEX, robotsTxt, llmsTxt, llmsFullTxt, sitemapXml, homeJsonLd };
