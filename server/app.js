@@ -37,8 +37,14 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
     // The webhook reads its raw body itself (the signature covers the exact bytes).
     // IndexNow (openvibe-shared/indexnow): Search publishes no pages of its own to submit, so this
     // service has nothing to ping — only the key file is served at /<key>.txt, when INDEXNOW_KEY is
-    // set. Mounted before the static handlers so nothing shadows it; an unset key means off.
-    const indexnow = createIndexNow({ host: config.baseUrl, key: config.indexnow.key, log });
+    // set. Mounted before the static handlers so nothing shadows it; an unset key means off, and a
+    // malformed one (not 8-128 letters and digits) is logged and left off rather than stopping boot.
+    let indexnow = { enabled: false };
+    try {
+        indexnow = createIndexNow({ host: config.baseUrl, key: config.indexnow.key, log });
+    } catch (err) {
+        log.warn(`[indexnow] INDEXNOW_KEY ignored, key file not served: ${err.message}`);
+    }
     if (indexnow.enabled) app.use(indexnow.keyFile);
 
     // This site's own pinned copy of the OpenVibe Frame's browser files (openvibe-shared/serve).

@@ -10,7 +10,6 @@ const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
 const { boot, request, doc, suite } = require('./helpers');
 const { llmsFullTxt } = require('../server/web/page');
-const { createApp } = require('../server/app');
 
 const t = suite('discovery');
 let svc;
@@ -103,9 +102,18 @@ t('GET /<key>.txt: the IndexNow key file answers when INDEXNOW_KEY is set', asyn
     } finally { await on.stop(); }
 });
 
+t('GET /<key>.txt: a malformed INDEXNOW_KEY leaves the key file off without stopping boot', async () => {
+    const on = await boot({ env: { INDEXNOW_KEY: 'bad key!' } });
+    try {
+        const health = await request(on.base, 'GET', '/api/health');
+        assert.strictEqual(health.status, 200);
+        const r = await request(on.base, 'GET', '/bad key!.txt');
+        assert.strictEqual(r.status, 404);
+    } finally { await on.stop(); }
+});
+
 t('the route index is built from routes only: every entry gets a line of text, none is private', async () => {
     const text = llmsFullTxt(origin());
-    assert.ok(typeof createApp === 'function', 'the app wires the key file');
     const urls = text.match(/^URL: (.+)$/gm);
     assert.ok(urls && urls.length >= 8, 'the public routes and JSON endpoints are listed');
     // Each route is followed by a non-empty line of text, and nothing private or per-user appears.
