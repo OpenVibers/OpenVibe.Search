@@ -43,7 +43,7 @@ function userToken({ subjectId = ids.newId('user'), role = 'user', aud = ['openv
     }, key);
 }
 
-async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, now } = {}) {
+async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, networkPush, now } = {}) {
     const config = load({
         NODE_ENV: 'test',
         PORT: '0',
@@ -55,7 +55,7 @@ async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, now } = {}) {
     const inner = fetchImpl || globalThis.fetch;
     const jwks = jwksFetch || stubJwks;
     const fetchImplBoth = async (url, opts) => String(url).includes('/api/.well-known/jwks') ? jwks(url, opts) : inner(url, opts);
-    const h = await start({ config, db: testdb.db, log: silent, fetchImpl: fetchImplBoth, tokenClient, now });
+    const h = await start({ config, db: testdb.db, log: silent, fetchImpl: fetchImplBoth, tokenClient, networkPush, now });
     const base = `http://127.0.0.1:${h.server.address().port}`;
     return { ...h, base, async stop() { await h.close(); await testdb.close(); } };
 }

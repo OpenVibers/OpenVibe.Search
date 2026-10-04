@@ -14,7 +14,7 @@ const { webhookRouter } = require('./api/webhook');
 const { createLimits } = require('./actor-limits');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, searcher: givenSearcher = null, notifier = null, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -46,12 +46,12 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
 
     // Readiness (openvibe-shared/ready): 503 only when the database (documents and full-text tables)
     // fails; the Network key and index consistency are optional and degrade it (see observability.js).
-    const readiness = createSearchReadiness({ db, config, engine, store, outbox, relay, purges, purger, saved, release: release.release });
+    const readiness = createSearchReadiness({ db, config, engine, store, outbox, relay, purges, purger, saved, notifier, release: release.release });
     app.get('/api/ready', readiness.handler);
     // GET /release.json (ADR-016) and POST /release-metrics (open tabs' update reports into /metrics).
     release.mount(app, { registry: metrics.registry });
 
-    const searcher = createSearcher({ config, store, engine, now });
+    const searcher = givenSearcher || createSearcher({ config, store, engine, now });
     // One per-actor limiter for the API routes below (server/actor-limits.js); the Events webhook,
     // health, ready, release.json and metrics above are never limited.
     const limits = createLimits({ config, now: now || (() => Date.now()), registry: metrics.registry, log });

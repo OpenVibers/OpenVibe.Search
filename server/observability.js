@@ -35,7 +35,7 @@ function readers(db, engine) {
     };
 }
 
-function createSearchReadiness({ db, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, release = null }) {
+function createSearchReadiness({ db, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, notifier = null, release = null }) {
     const read = readers(db, engine);
     return createReadiness({
         service: 'search',
@@ -91,6 +91,8 @@ function createSearchReadiness({ db, config, engine, store, outbox, relay, purge
                     ...await purges.cdnCounts(),
                 } : null,
                 saved_searches: dbOk && saved ? await saved.total() : null,
+                // Off by default (SEARCH_SAVED_NOTIFY); off is a setting, never a failure.
+                saved_notify: notifier ? notifier.state() : null,
                 freshness: config.freshness,
             };
         },

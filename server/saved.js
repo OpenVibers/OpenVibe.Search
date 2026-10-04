@@ -5,8 +5,8 @@
  * that person at that moment, so a document that became private or was deleted since the save
  * is simply not there, and one they gained access to is.
  *
- * Notifications for new matches wait for OpenVibe.Network's notifications (README "Saved
- * searches"); last_run_at is kept so that job can tell what is new.
+ * last_run_at is also the watermark of the saved-search notifier (server/saved-notifier.js): what was
+ * indexed after it is new.
  */
 const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
@@ -41,6 +41,9 @@ function createSavedSearches(db, { maxPerSubject = 50, now = () => Date.now() } 
         rename: db.prepare('UPDATE saved_searches SET name = ?, updated_at = ? WHERE id = ?'),
         del: db.prepare('DELETE FROM saved_searches WHERE id = ? AND subject = ?'),
         ran: db.prepare('UPDATE saved_searches SET last_run_at = ? WHERE id = ?'),
+        // Never moves back: a person opening the results during a notifier tick keeps the later time.
+        advance: db.prepare('UPDATE saved_searches SET last_run_at = GREATEST(COALESCE(last_run_at, 0), ?) WHERE id = ?'),
+        due: db.prepare('SELECT * FROM saved_searches ORDER BY COALESCE(last_run_at, created_at), id LIMIT ?'),
         total: db.prepare('SELECT COUNT(*) AS n FROM saved_searches'),
     };
 
@@ -88,6 +91,13 @@ function createSavedSearches(db, { maxPerSubject = 50, now = () => Date.now() } 
         save,
         remove: async (subject, id) => ID_RE.test(String(id)) && (await st.del.run(id, subject)).changes > 0,
         markRun: async (id) => await st.ran.run(now(), id),
+        /**
+         * The notifier's queue: up to `limit` saved searches, longest without a run first, each with its
+         * subject and watermark (last_run_at, else created_at; epoch ms).
+         */
+        due: async (limit) => (await st.due.all(limit)).map(r => ({ ...view(r), subject: r.subject, watermark: Number(r.last_run_at ?? r.created_at) })),
+        /** Move the watermark to `at` (epoch ms) after a notification went out or there was nothing new. */
+        advance: async (id, at) => await st.advance.run(at, id),
         total: async () => (await st.total.get()).n,
         maxPerSubject,
     };

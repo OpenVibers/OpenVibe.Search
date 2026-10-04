@@ -17,9 +17,12 @@ const { gracefulStop } = require('openvibe-sdk/service');
 const { createAuth } = require('./auth');
 const { createPurgeQueue, createPurger } = require('./purge');
 const { createSavedSearches } = require('./saved');
+const { createSearcher } = require('./api/query');
+const { createNetworkPush } = require('./network-push');
+const { createSavedNotifier } = require('./saved-notifier');
 const { createApp } = require('./app');
 
-async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, log = console, listen = true } = {}) {
+async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, networkPush = null, log = console, listen = true } = {}) {
     config = config || load();
     // PostgreSQL (ADR-035): opened and migrated here unless the caller (a test) hands in a migrated handle.
     const db = givenDb || await openDb(config, { log });
@@ -42,7 +45,13 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const jwksUrl = `${config.networkInternalUrl}/api/.well-known/jwks`;
     const jwks = jwksClient(jwksUrl, { log, fetch: fetchImpl });
     const auth = createAuth({ config, jwks, log });
-    const app = createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, log, now });
+    const searcher = createSearcher({ config, store, engine, now });
+    // Saved-search notifications through Network: off unless SEARCH_SAVED_NOTIFY=1 with the `search` client's secret.
+    const notifier = createSavedNotifier({
+        config, saved, searcher, now, log,
+        network: networkPush || createNetworkPush({ config, fetchImpl }),
+    });
+    const app = createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, searcher, notifier, log, now });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
@@ -50,6 +59,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const keyLoaded = jwks.keys().catch(() => null);
     relay.start();
     purger.start();
+    notifier.start();
     const pruneTimer = setInterval(async () => { try { await outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
 
@@ -67,6 +77,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         jwks.stop();
         await relay.stop();
         await purger.stop();
+        await notifier.stop();
         if (server) {
             server.closeAllConnections?.();
             await new Promise(resolve => server.close(() => resolve()));
@@ -74,15 +85,15 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         if (!givenDb) await db.close();
     }
 
-    return { config, db, engine, store, outbox, relay, purges, purger, saved, jwks, keyLoaded, auth, app, server, close };
+    return { config, db, engine, store, outbox, relay, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close };
 }
 
 if (require.main === module) {
     require('dotenv').config();
     start().then((handles) => {
         // SIGTERM/SIGINT (openvibe-sdk/service, docs/service.md's handles family): requests in flight get 8 s,
-        // then handles.close() (the prune timer and JWKS refresher stopped, the relay and purger stopped, the
-        // server closed, the database closed; a rejection exits 1); past 10 s the process exits 1.
+        // then handles.close() (the prune timer and JWKS refresher stopped, the relay, purger and saved-search
+        // notifier stopped, the server closed, the database closed; a rejection exits 1); past 10 s the process exits 1.
         gracefulStop({ name: 'search', server: handles.server, handles, drainMs: 8000, deadlineMs: 10000 });
     }).catch((err) => {
         console.error(`[search] failed to start: ${err.stack || err}`);
