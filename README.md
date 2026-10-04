@@ -111,9 +111,23 @@ query again returns the existing one (renamed if a new name is given). Only the 
 every run is a fresh query as that person at that moment, so what they lost access to (or what was
 deleted) is gone and what they gained appears. Someone else's saved search is the same 404 as a
 missing one; guests cannot save; a cookie-authenticated POST/DELETE must carry this origin's
-`Origin`. Notifications of new matches wait for OpenVibe.Network's notifications (`last_run_at` is
-kept for that job), deferred to plan tracks T9/T11; the notifying job will need the
-`network.notifications.push` capability. Signing in on `search.openvibe.network` itself needs a
+`Origin`.
+
+**Notifications of new matches** ([server/saved-notifier.js](server/saved-notifier.js)) are off
+unless `SEARCH_SAVED_NOTIFY=1`; they also need `OV_OAUTH_CLIENT_SECRET` (the Network OAuth client
+`search`, client credentials) and stay off without it, which `/api/ready` reports as
+`saved_notify: "off (…)"`, never as a failure. Every `SEARCH_SAVED_NOTIFY_INTERVAL_MS` (15 min) the
+notifier takes up to `SEARCH_SAVED_NOTIFY_BATCH` (100) saved searches, longest waiting first, and runs
+each as its owner for documents indexed (a new revision) after its watermark, `last_run_at` (else
+`created_at`). A search with new hits gets one notification through OpenVibe.Network (type
+`SEARCH_SAVED_MATCH`, service `search`, category `service`: how many, the top title, a link to the
+search page with that query); the person is resolved to Network's user id first
+(`GET /internal/identity/resolve`, then `POST /internal/notifications/push`). The watermark moves to
+the tick's start only once the push went out (or there was nothing new, or Network no longer knows
+the person): a failed push is retried on the next tick and a delivered batch is never notified
+twice. Opening the results moves the watermark too, so what the person has seen is not announced.
+Network must grant the principal `search` `network.notifications.push` (for its own service) and
+`identity.subject.resolve`. Signing in on `search.openvibe.network` itself needs a
 Network OAuth client (`search`), which does not exist yet: today saved searches are used through
 Bearer tokens or a product acting for its visitor.
 
@@ -210,6 +224,8 @@ Called elsewhere, as the service principal `search` (client credentials from Ope
 |---|---|---|
 | OpenVibe.Events | `events.event.publish` (audience `openvibe.events`) | the outbox relays `search.document.indexed` / `search.document.removed` |
 | OpenVibe.Events | `events.subscription.manage` (`npm run subscribe`, once) | the HMAC-signed subscription to `*.index_document.*` that delivers index events |
+| OpenVibe.Network | `identity.subject.resolve` (audience `openvibe.network`) | saved-search notifications: a `usr_` subject to Network's user id (only with `SEARCH_SAVED_NOTIFY=1`) |
+| OpenVibe.Network | `network.notifications.push` (audience `openvibe.network`, own service `search`) | saved-search notifications: one notification per saved search with new hits |
 
 Released in `openvibe-contracts` v0.76.0 with the service manifest (this repo pins v0.49.0);
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
@@ -251,6 +267,9 @@ Never limited: the signed Events deliveries (`POST /internal/events`), `/api/hea
 - freshness decay, newer-first between equals, relevance over age, stable cursors (`test/freshness.test.js`)
 - saved searches: signed-in only, own only, run-time ACL, Origin check for cookies, limits
   (`test/saved-searches.test.js`)
+- saved-search notifications: one push per search with new hits, as its owner, the watermark only
+  after a push, a failed push retried, never twice, off without the flag and the secret
+  (`test/saved-notify.test.js`, `test/network-push.test.js`)
 - the search page: public only, escaped, no-store, noindex results, paging (`test/page.test.js`)
 - per-actor limits: 429 `rate_limited` with Retry-After per principal, person or address, another
   caller unaffected, deliveries and health never limited (`test/actor-limits.test.js`)
@@ -279,7 +298,7 @@ Reporting: [SECURITY.md](SECURITY.md). The rules the code keeps:
   results never carry the ACL, and every response is `no-store`. Saved searches store the query only.
 - **Network exposure.** The owner API, `/internal/events` and document writes are loopback-only in the
   vhost; `/metrics` answers direct loopback callers only; client addresses come from `$remote_addr`.
-- **Egress.** Search calls only OpenVibe.Network (keys, tokens), OpenVibe.Events (`EVENTS_URL`) and,
+- **Egress.** Search calls only OpenVibe.Network (keys, tokens, and with `SEARCH_SAVED_NOTIFY=1` identity resolve and notification push), OpenVibe.Events (`EVENTS_URL`) and,
   when `CLOUDFLARE_PURGE_TOKEN` is set, the Cloudflare purge API. It never fetches a URL a user chose.
 - **Secrets.** `OV_OAUTH_CLIENT_SECRET`, `SEARCH_EVENTS_SECRET` and `CLOUDFLARE_PURGE_TOKEN` come from
   the environment (`/etc/openvibe/search.env`, 0600) and are never stored or logged. Event deliveries

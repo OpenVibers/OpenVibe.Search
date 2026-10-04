@@ -115,14 +115,16 @@ function canView(viewer, row, doc) {
 
 /**
  * One search as a viewer: the query API, saved-search runs and the HTML page all go through here.
- *   run({ text, query, viewer, limit, cursor, facetKeys, now }) → { results, next_cursor, facets? }
- * `query` is the query-string-shaped filter source (owner, type, lang, facet.<key>). Throws
- * QueryError for a malformed request.
+ *   run({ text, query, viewer, limit, cursor, facetKeys, now, since }) → { results, next_cursor, facets? }
+ * `query` is the query-string-shaped filter source (owner, type, lang, facet.<key>). `since` (epoch ms,
+ * internal callers only: the saved-search notifier) keeps documents indexed after it; the public
+ * API never passes it. Throws QueryError for a malformed request.
  */
 function createSearcher({ config, store, engine, now: clock = () => Date.now() }) {
-    async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock() }) {
+    async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock(), since = null }) {
         if (text.length > 500) throw new QueryError('search.bad_query', 'q is longer than 500 characters');
         filters = filters || parseFilters(query, config);
+        if (since != null) filters = { ...filters, since: Number(since) };
         limit = Math.min(Math.max(parseInt(limit, 10) || config.query.defaultLimit, 1), config.query.maxLimit);
         if (facetKeys.length > 5 || facetKeys.some(k => !FACET_KEY_RE.test(k))) throw new QueryError('search.bad_query', 'facets: at most 5 well-formed keys');
 

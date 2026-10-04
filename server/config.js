@@ -98,6 +98,11 @@ function load(env = process.env) {
 
         savedSearches: {
             maxPerSubject: Math.max(1, int(env.SEARCH_SAVED_MAX_PER_SUBJECT, 50)),
+            // Notifications of new matches through OpenVibe.Network (server/saved-notifier.js): off unless
+            // SEARCH_SAVED_NOTIFY=1, and then only with OV_OAUTH_CLIENT_SECRET (the Network OAuth client `search`).
+            notify: env.SEARCH_SAVED_NOTIFY === '1',
+            notifyIntervalMs: Math.max(1000, int(env.SEARCH_SAVED_NOTIFY_INTERVAL_MS, 15 * 60 * 1000)),
+            notifyBatch: Math.max(1, int(env.SEARCH_SAVED_NOTIFY_BATCH, 100)),
         },
 
         // Per-actor limits at the API routes (server/actor-limits.js, roadmap WS-R task 4): the requests

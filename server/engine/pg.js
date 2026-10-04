@@ -115,6 +115,8 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
         if (filters.owner) { parts.push('d.owner = @f_owner'); params.f_owner = filters.owner; }
         if (filters.type) { parts.push('d.type = @f_type'); params.f_type = filters.type; }
         if (filters.language) { parts.push('d.language = @f_lang'); params.f_lang = filters.language; }
+        // Internal only (saved-search notifications): documents indexed (a new revision) after `since`, epoch ms.
+        if (filters.since != null) { parts.push('d.indexed_at > @f_since::bigint'); params.f_since = Number(filters.since); }
         (filters.facets || []).forEach(([key, values], i) => {
             params[`f_fk${i}`] = key;
             params[`f_fv${i}`] = values.map(String);
