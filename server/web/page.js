@@ -37,6 +37,8 @@ const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://
 // The Events realtime stream: release notifications (release-watch's EventSource, openvibe-shared 1.17).
 const EVENTS = 'https://events.openvibe.network';
 const shell = require('openvibe-shared/shell');
+const showcase = require('openvibe-shared/showcase');
+const { DEFAULT_EVENT_OWNERS } = require('../config');
 const frame = require('openvibe-shared/frame');
 const LINKS = [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }];
 // The shell options every page shares: the navbar it boots and the noscript nav and footer it renders.
@@ -51,7 +53,7 @@ const FOOTER_INIT = `window.addEventListener('DOMContentLoaded', function () { t
 // them by hash and still has no 'unsafe-inline'.
 const sha256 = (js) => `'sha256-${require('crypto').createHash('sha256').update(js, 'utf8').digest('base64')}'`;
 const INLINE = [...shell.scripts(FRAME).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).concat(FOOTER_INIT);
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'self' 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
 const ICON_LINKS = require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -180,7 +182,39 @@ function sitemapXml(origin, { indexLastmod = null, releasedAt = null } = {}) {
     return seo.sitemapXml(entries);
 }
 
-function layout({ title, q, owner, type, body, noindex, canonical, jsonLd }) {
+// The front page's "browse by source" cards: each source the index accepts, with what it sends, linking to its filtered
+// search (?owner=, which lists that source's public documents). Names and lines only; nothing here is counted or claimed.
+const SOURCES = {
+    wiki: ['OpenVibe.Wiki', 'Wiki pages with their sources and history.'],
+    blog: ['OpenVibe.Blog', 'Posts from every blog on the network.'],
+    news: ['OpenVibe.News', 'Source-backed stories.'],
+    reviews: ['OpenVibe.Reviews', 'Reviews and the evidence behind them.'],
+    deals: ['OpenVibe.Deals', 'Deals people found.'],
+    coupons: ['OpenVibe.Coupons', 'Coupon codes with their restrictions and reports.'],
+    trade: ['OpenVibe.Trade', 'Listings people posted.'],
+    community: ['OpenVibe.Community', 'Public pastes and posts.'],
+    live: ['OpenVibe.Live', 'Channels, streams and clips.'],
+    media: ['OpenVibe.Media', 'Public videos, clips and files.'],
+    codes: ['OpenVibe.Codes', 'The developer docs and API reference.'],
+    games: ['OpenVibe.Games', 'Browser games.'],
+    tools: ['OpenVibe.Tools', 'Every online tool, by what it does.'],
+    sources: ['OpenVibe.Sources', 'The registry of news and data sources.'],
+};
+const ICON_OF = { sources: 'docs' };
+// The front page's kit sections sit in this page's 760 px column, which already has its gutter.
+const FRONT_CSS = `<style>
+main .sc-hero, main .sc-sec { padding-left: 0; padding-right: 0; }
+main .sc-hero { padding-top: 16px; }
+main .sc-hero h1 { font-size: clamp(30px, 6vw, 44px); }
+main .sc-hero + form { margin-top: 20px; }
+main .sc-sec { margin-top: 40px; }
+</style>`;
+function frontShowcase(owners = DEFAULT_EVENT_OWNERS) {
+    const items = owners.filter((o) => SOURCES[o]).map((o) => ({ icon: `ov:${ICON_OF[o] || o}`, title: SOURCES[o][0], text: SOURCES[o][1], href: `/?owner=${encodeURIComponent(o)}` }));
+    return showcase.features({ id: 'sources', title: 'Browse by source', lede: 'Each service sends what it publishes as it publishes it; open one to see its public documents.', items });
+}
+
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false }) {
     const url = noindex ? undefined : canonical;
     return shell.page({
         ...FRAME,
@@ -194,6 +228,8 @@ function layout({ title, q, owner, type, body, noindex, canonical, jsonLd }) {
             `<meta name="ov-boost" content="search@${esc(RELEASE)}">`,
             `<script src="${ovServe.url('boost.js')}" data-main="#main" defer></script>`,
             `<script>${FOOTER_INIT}</script>`,
+            // The kit's sheet on the front page only (its hero and source cards); result pages stay as light as before.
+            ...(front ? [`<link rel="stylesheet" href="${ovServe.url('showcase.css')}">`, FRONT_CSS] : []),
             `<style>
 /* The network theme (the Frame's theme loader sets these tokens on <html>) wins; the values here are the
    defaults when it does not load. Search's own names follow them, so the page and the shared widgets
@@ -224,8 +260,12 @@ mark { background: var(--mark); color: inherit; }
         ].join('\n'),
         body: `<div id="navbar-mount"></div>
 <main id="main">
-<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
-<p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>
+${front ? showcase.hero({
+        eyebrow: 'OpenVibe.Search',
+        title: 'Search the', accent: 'OpenVibe network',
+        lede: "Wiki pages, posts, stories, pastes, tools and more from the network's services, in one index. Alpha: it holds only what they have sent so far.",
+    }) : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
+<p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
 ${owner ? `<input type="hidden" name="owner" value="${esc(owner)}">` : ''}${type ? `<input type="hidden" name="type" value="${esc(type)}">` : ''}<button type="submit">Search</button>
@@ -255,7 +295,7 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
 /** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates.
  *  newestPublic() reads the newest content time among the public indexable documents (the sitemap's real
  *  lastmod); releasedAt is the deployed release's date (/updates' lastmod). */
-function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null }) {
+function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
@@ -313,7 +353,8 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             if (!(err instanceof AuthError)) return next(err);
             viewer = null; // a browser page never 401s: an unverifiable credential searches as anonymous
         }
-        let body = '<p class="note">Type some words to search. Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>' + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
+        // The plain front page opens with what Search is (openvibe-shared/showcase) and its sources to browse.
+        let body = frontShowcase(owners) + '<p class="note">Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>' + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
         let status = 200;
         if (searching) {
             try {
@@ -337,7 +378,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         }
         // JSON-LD only where the page may be indexed: the plain front page, never a result page.
         const jsonLd = searching || status !== 200 ? null : homeJsonLd(origin);
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd }));
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: !searching && status === 200 }));
     });
 
     return router;

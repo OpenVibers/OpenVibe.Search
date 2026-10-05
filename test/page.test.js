@@ -58,6 +58,14 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
         assert.ok(allowed.includes(crypto.createHash('sha256').update(body, 'utf8').digest('base64')), `inline script allowed by its hash: ${body.slice(0, 60)}`);
     }
     assert.strictEqual(inline, 2, 'the shell boot and the footer init');
+    // The front page opens with the showcase kit (openvibe-shared/showcase): its hero is the one h1, its sheet is
+    // same-origin (style-src 'self'), and the sources to browse link their filtered searches.
+    assert.ok(r.text.includes('class="sc-hero') && r.text.includes('<section class="sc-sec" id="sources"'), 'hero and sources');
+    assert.match(r.text, /<link rel="stylesheet" href="\/shared\/showcase\.css\?v=[^"]+">/);
+    assert.match(csp, /style-src 'self' 'unsafe-inline' https:\/\/openvibe\.network;/);
+    assert.strictEqual((r.text.match(/<h1[\s>]/g) || []).length, 1, 'one h1');
+    assert.ok(r.text.includes('href="/?owner=wiki"'), 'browse the wiki');
+    assert.ok(r.text.indexOf('class="sc-hero') < r.text.indexOf('role="search"'), 'the search form follows the hero');
     assert.match(r.text, /OpenVibeNavbar\.init\(\{"service":"search"/, 'the shell boots the navbar');
     assert.match(r.text, /OpenVibeFooter\.init\(\{"service":"search"[^)]*"mount":"#ov-footer"/, 'the footer is upgraded in place');
     // The rendered head (openvibe-shared/shell): one title, the canonical, robots, the AI summary and JSON-LD.
@@ -98,6 +106,7 @@ t('/updates is the shared log; the old Frame init script is gone', async () => {
 
 t('results show public documents only, escaped, linked to their canonical URL, noindex', async () => {
     const r = await html('/?q=kestrel');
+    assert.ok(!r.text.includes('sc-hero') && !r.text.includes('showcase.css'), 'a result page has no showcase');
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.match(r.text, /<meta name="robots" content="noindex, nofollow">/);
