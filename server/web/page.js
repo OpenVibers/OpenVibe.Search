@@ -191,7 +191,7 @@ const SOURCES = {
     reviews: ['OpenVibe.Reviews', 'Reviews and the evidence behind them.'],
     deals: ['OpenVibe.Deals', 'Deals people found.'],
     coupons: ['OpenVibe.Coupons', 'Coupon codes with their restrictions and reports.'],
-    trade: ['OpenVibe.Trade', 'Listings people posted.'],
+    trade: ['OpenVibe.Trade', 'Watchlists and sourced market context, with no orders or custody.'],
     community: ['OpenVibe.Community', 'Public pastes and posts.'],
     live: ['OpenVibe.Live', 'Channels, streams and clips.'],
     media: ['OpenVibe.Media', 'Public videos, clips and files.'],
