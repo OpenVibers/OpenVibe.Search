@@ -127,9 +127,10 @@ the tick's start only once the push went out (or there was nothing new, or Netwo
 the person): a failed push is retried on the next tick and a delivered batch is never notified
 twice. Opening the results moves the watermark too, so what the person has seen is not announced.
 Network must grant the principal `search` `network.notifications.push` (for its own service) and
-`identity.subject.resolve`. Signing in on `search.openvibe.network` itself needs a
-Network OAuth client (`search`), which does not exist yet: today saved searches are used through
-Bearer tokens or a product acting for its visitor.
+`identity.subject.resolve`. The Network OAuth client (`search`) is provisioned on Network with
+`node server/setup/service-principal.js create search --write-env /etc/openvibe/search.env`, and
+saved-search notifications are switched on here with `SEARCH_SAVED_NOTIFY=1`; until someone signs
+in that way, saved searches are used through Bearer tokens or a product acting for its visitor.
 
 ## Indexing
 
@@ -227,7 +228,7 @@ Called elsewhere, as the service principal `search` (client credentials from Ope
 | OpenVibe.Network | `identity.subject.resolve` (audience `openvibe.network`) | saved-search notifications: a `usr_` subject to Network's user id (only with `SEARCH_SAVED_NOTIFY=1`) |
 | OpenVibe.Network | `network.notifications.push` (audience `openvibe.network`, own service `search`) | saved-search notifications: one notification per saved search with new hits |
 
-Released in `openvibe-contracts` v0.76.0 with the service manifest (this repo pins v0.49.0);
+Released in `openvibe-contracts` v0.96.0 with the service manifest, which this repo pins;
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
 `openvibe-contracts-check --service search`.
 
