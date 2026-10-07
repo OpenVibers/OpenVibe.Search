@@ -35,7 +35,7 @@ const NETWORK = 'https://openvibe.network';
 // performance; script-src loads the beacon, connect-src is where it reports.
 const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://cloudflareinsights.com';
 // The Events realtime stream: release notifications (release-watch's EventSource, openvibe-shared 1.17).
-const EVENTS = 'https://events.openvibe.network';
+const EVENTS = 'https://openvibe.events';
 const shell = require('openvibe-shared/shell');
 const showcase = require('openvibe-shared/showcase');
 const { DEFAULT_EVENT_OWNERS } = require('../config');
