@@ -43,7 +43,10 @@ function parseZones(v) {
  * sources may feed the index at all. The direct API is decided by the search.document.write grant.
  */
 const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupons', 'trade',
-    'community', 'live', 'media', 'codes', 'games', 'tools', 'sources'];
+    'community', 'live', 'media', 'codes', 'games', 'tools', 'sources',
+    // Record products (openvibe-publishing/search-feed, contracts 0.128.0): job listings, rental listings, help
+    // articles, item definitions and quests.
+    'work', 'rent', 'help', 'inventory', 'quest'];
 
 function load(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
