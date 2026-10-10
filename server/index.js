@@ -11,7 +11,8 @@ const { load } = require('./config');
 const { openDb } = require('./db');
 const { createEngine } = require('./engine/pg');
 const { createStore } = require('./store');
-const { createOutbox, createRelay } = require('./events/outbox');
+const { createServiceOutbox } = require('openvibe-sdk/events');
+const contracts = require('openvibe-contracts');
 const { jwksClient } = require('openvibe-sdk/auth');
 const { gracefulStop } = require('openvibe-sdk/service');
 const { createAuth } = require('./auth');
@@ -22,7 +23,7 @@ const { createNetworkPush } = require('./network-push');
 const { createSavedNotifier } = require('./saved-notifier');
 const { createApp } = require('./app');
 
-async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, tokenClient, networkPush = null, log = console, listen = true } = {}) {
+async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, networkPush = null, log = console, listen = true } = {}) {
     config = config || load();
     // PostgreSQL (ADR-035): opened and migrated here unless the caller (a test) hands in a migrated handle.
     const db = givenDb || await openDb(config, { log });
@@ -30,16 +31,17 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     // The index is derived from documents: rebuilt at boot when it disagrees with the documents table.
     const rebuilt = await engine.reconcile();
     if (rebuilt.rebuilt) log.log(`[search] full-text index rebuilt: ${rebuilt.rebuilt} document(s)`);
-    const outbox = createOutbox(db, { source: config.serviceId, now });
+    const outbox = createServiceOutbox({
+        db, source: config.serviceId, eventsUrl: config.events.url, networkInternalUrl: config.networkInternalUrl,
+        clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret,
+        intervalMs: config.events.relayIntervalMs, log, table: 'service_outbox', now, fetch: fetchImpl,
+        eventTypes: ['search.document.indexed', 'search.document.removed'],
+        validate: (env) => contracts.validate('events.event-envelope@1', env),
+    });
     const purges = createPurgeQueue(db, { config: config.purge, now });
     const purger = createPurger({ db, config: config.purge, fetchImpl, log, now });
     const saved = createSavedSearches(db, { maxPerSubject: config.savedSearches.maxPerSubject, now });
     const store = createStore({ db, engine, outbox, purges, now });
-    const relay = createRelay({
-        db, outbox, eventsUrl: config.events.url, intervalMs: config.events.relayIntervalMs, fetchImpl, log, now,
-        tokenClient,
-        tokenOpts: config.oauth.clientSecret ? { tokenUrl: `${config.networkInternalUrl}/oauth/token`, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret } : null,
-    });
     // Identity keys: the SDK keeps one JWKS client per URL (openvibe-sdk/auth). It serves the last good
     // keys through an outage, refetches at once for an unknown kid (a rotation) and backs off on failure.
     const jwksUrl = `${config.networkInternalUrl}/api/.well-known/jwks`;
@@ -51,16 +53,16 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         config, saved, searcher, now, log,
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
-    const app = createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, searcher, notifier, log, now });
+    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, log, now });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
     if (config.nodeEnv !== 'test') jwks.start();
     const keyLoaded = jwks.keys().catch(() => null);
-    relay.start();
+    outbox.start();
     purger.start();
     notifier.start();
-    const pruneTimer = setInterval(async () => { try { await outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
+    const pruneTimer = setInterval(async () => { try { await outbox.outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
 
     let server = null;
@@ -75,7 +77,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     async function close() {
         clearInterval(pruneTimer);
         jwks.stop();
-        await relay.stop();
+        await outbox.stop();
         await purger.stop();
         await notifier.stop();
         if (server) {
@@ -85,7 +87,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         if (!givenDb) await db.close();
     }
 
-    return { config, db, engine, store, outbox, relay, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close };
+    return { config, db, engine, store, outbox, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close };
 }
 
 if (require.main === module) {

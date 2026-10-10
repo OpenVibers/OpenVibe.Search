@@ -43,7 +43,7 @@ function userToken({ subjectId = ids.newId('user'), role = 'user', aud = ['openv
     }, key);
 }
 
-async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, networkPush, now } = {}) {
+async function boot({ env = {}, fetchImpl, jwksFetch, networkPush, now } = {}) {
     const config = load({
         NODE_ENV: 'test',
         PORT: '0',
@@ -55,7 +55,7 @@ async function boot({ env = {}, fetchImpl, jwksFetch, tokenClient, networkPush, 
     const inner = fetchImpl || globalThis.fetch;
     const jwks = jwksFetch || stubJwks;
     const fetchImplBoth = async (url, opts) => String(url).includes('/api/.well-known/jwks') ? jwks(url, opts) : inner(url, opts);
-    const h = await start({ config, db: testdb.db, log: silent, fetchImpl: fetchImplBoth, tokenClient, networkPush, now });
+    const h = await start({ config, db: testdb.db, log: silent, fetchImpl: fetchImplBoth, networkPush, now });
     const base = `http://127.0.0.1:${h.server.address().port}`;
     return { ...h, base, async stop() { await h.close(); await testdb.close(); } };
 }
@@ -69,6 +69,12 @@ async function request(base, method, p, { token, body, headers = {}, raw } = {})
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     return { status: res.status, body: json, text, headers: res.headers };
+}
+
+/** Read the SDK outbox's stored envelopes for event assertions. */
+async function outboxEvents(db) {
+    const rows = await db.many('SELECT envelope FROM service_outbox ORDER BY id');
+    return rows.map(r => typeof r.envelope === 'string' ? JSON.parse(r.envelope) : r.envelope);
 }
 
 /** A valid, public, published, indexable document. Override anything. */
@@ -143,5 +149,5 @@ function suite(name) {
 
 module.exports = {
     ISSUER, WEBHOOK_SECRET, privateKey, publicKey, silent, serviceToken, userToken, boot, request,
-    doc, indexEvent, deliver, suite, jwksDocument, stubJwks, JWKS_KID,
+    doc, indexEvent, deliver, suite, jwksDocument, stubJwks, JWKS_KID, outboxEvents,
 };

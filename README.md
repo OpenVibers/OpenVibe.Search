@@ -37,7 +37,8 @@ API and the Events webhook are loopback-only, and owners and Events call `127.0.
 `GET /api/health` is liveness. `GET /api/ready` (openvibe-shared/ready) is 503 only when the
 database (the documents and the full-text table) fails; a Network signing key that has not loaded
 (anonymous queries still answer) and a full-text index out of step with the documents table degrade
-it. It also reports document counts by exposure, the outbox backlog and whether the Events webhook
+it. It also reports document counts by exposure, the SDK outbox status (`enabled`, `pending`,
+`rejected`, `last_error`) and whether the Events webhook
 is on. `GET /metrics` (openvibe-shared/metrics) answers direct loopback callers only: golden signals
 by route template, `search_documents{exposure}`, `search_documents_indexed{index}` and the outbox
 backlog.
@@ -166,7 +167,8 @@ Every change that lowers a document's exposure (deleted, drafted, unpublished, m
 private/members/unlisted, or public → noindex) leaves results in the same transaction and emits
 `search.document.removed` (with the canonical URL if it had been public, so caches and sitemaps
 purge); every accepted upsert emits `search.document.indexed`. Both go through a transactional
-outbox relayed to Events when `EVENTS_URL` is set.
+outbox (`openvibe-sdk/events`, table `service_outbox`) relayed to Events when `EVENTS_URL` and
+`OV_OAUTH_CLIENT_SECRET` are set. Pending rows wait when the relay is off.
 
 ### Removals, caches and the CDN
 
@@ -192,8 +194,9 @@ the `search.document.removed` event it records:
 
 - the index document contract (`search.index-document@1`, released in openvibe-contracts v0.12.0; proposal in [docs/contracts-proposal/](docs/contracts-proposal/))
 - `documents`, `doc_acl`, `doc_facets`, `search_fts` (the full-text index), `idempotency_receipts`,
-  `ingest_rejections`, `event_outbox`, `removals`, `cdn_purges`, `saved_searches` (PostgreSQL, schema in
+  `ingest_rejections`, `service_outbox` (the SDK outbox), `removals`, `cdn_purges`, `saved_searches` (PostgreSQL, schema in
   [migrations/](migrations/); engine decision in [docs/adr-engine.md](docs/adr-engine.md))
+- `event_outbox` remains for the N-1 rollback window; the expand migration copies its pending rows to `service_outbox`.
 - the query API, its ranking and ACL filtering, the search page and saved searches; deletion and
   visibility-change propagation, including the CDN purge of removed public URLs
 

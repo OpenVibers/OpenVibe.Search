@@ -4,7 +4,7 @@
  * of formerly public URLs against a mocked Cloudflare API. No test talks to Cloudflare.
  */
 const assert = require('assert');
-const { boot, request, serviceToken, doc, suite } = require('./helpers');
+const { boot, request, serviceToken, doc, suite, outboxEvents } = require('./helpers');
 const { load } = require('../server/config');
 const { zoneFor, purgeUrls, MAX_ATTEMPTS } = require('../server/purge');
 
@@ -71,7 +71,7 @@ t('inert without CLOUDFLARE_PURGE_TOKEN: removals are recorded for owners, nothi
         assert.strictEqual(r.previous_exposure, 'public_listed');
         assert.strictEqual(r.exposure, 'restricted');
         // The removal row and the outbox event are the same removal.
-        const ev = (await svc.outbox.all()).find(e => e.event_type === 'search.document.removed' && e.payload.id === 'inert1');
+        const ev = (await outboxEvents(svc.db)).find(e => e.event_type === 'search.document.removed' && e.payload.id === 'inert1');
         assert.strictEqual(r.event_id, ev.event_id);
         const ready = await request(svc.base, 'GET', '/api/ready');
         assert.match(JSON.stringify(ready.body), /CLOUDFLARE_PURGE_TOKEN unset/);

@@ -42,7 +42,7 @@ function outcomeResponse(res, ctx, r) {
     return res.json(r);
 }
 
-function documentsRouter({ store, auth, db, relay, purges, limits }) {
+function documentsRouter({ store, auth, db, outbox, purges, limits }) {
     const router = express.Router();
     const guard = auth.requireCap(CAPS.write);
     // Per-actor limits (server/actor-limits.js), by service principal; reconciliation reads take the
@@ -78,7 +78,7 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
         const v = validate(doc);
         if (!v.valid) return http.sendProblem(res, 422, 'search.bad_document', { detail: 'document does not match search.index-document@1', ctx, errors: v.errors });
         const r = await store.apply(doc, { via: 'api', traceId: ctx.traceId });
-        if (r.outcome === 'applied' && relay) relay.flush().catch(() => {});
+        if (r.outcome === 'applied') outbox.kick().catch(() => {});
         return outcomeResponse(res, ctx, r);
     });
 
@@ -91,7 +91,7 @@ function documentsRouter({ store, auth, db, relay, purges, limits }) {
             revision = Number(req.query.revision);
         }
         const r = await store.remove(req.params.owner, req.params.type, req.params.id, { revision, via: 'api', traceId: ctx.traceId });
-        if (r.outcome === 'applied' && relay) relay.flush().catch(() => {});
+        if (r.outcome === 'applied') outbox.kick().catch(() => {});
         return outcomeResponse(res, ctx, r);
     });
 

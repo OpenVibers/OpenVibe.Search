@@ -2,7 +2,7 @@
 /** Events consumer: signatures, inbox dedupe, revision order across deliveries, tombstones, refusals. */
 const assert = require('assert');
 const { ids } = require('openvibe-contracts');
-const { boot, request, serviceToken, doc, indexEvent, deliver, suite } = require('./helpers');
+const { boot, request, serviceToken, doc, indexEvent, deliver, suite, outboxEvents } = require('./helpers');
 
 const t = suite('webhook-inbox');
 let svc;
@@ -45,7 +45,7 @@ t('a delivered upsert is indexed; the same event again is a no-op', async () => 
     const again = await deliver(svc.base, e, { seq: 2 });
     assert.deepStrictEqual([again.status, again.body.duplicate], [200, true]);
     assert.strictEqual((await search('nuword')).length, 1);
-    const events = (await svc.outbox.all()).filter(x => x.payload.id === d.id && x.event_type === 'search.document.indexed');
+    const events = (await outboxEvents(svc.db)).filter(x => x.payload.id === d.id && x.event_type === 'search.document.indexed');
     assert.strictEqual(events.length, 1, 'one effect, one event');
 });
 
@@ -73,7 +73,7 @@ t('a deletion event tombstones and wins over upserts delivered after it', async 
     assert.strictEqual((await deliver(svc.base, indexEvent(d))).body.outcome, 'stale');
     assert.strictEqual((await deliver(svc.base, indexEvent({ ...d, revision: 5 }))).body.outcome, 'stale');
     assert.strictEqual((await search('omicronword')).length, 0);
-    const removed = (await svc.outbox.all()).filter(x => x.event_type === 'search.document.removed' && x.payload.id === d.id);
+    const removed = (await outboxEvents(svc.db)).filter(x => x.event_type === 'search.document.removed' && x.payload.id === d.id);
     assert.deepStrictEqual(removed.map(x => x.payload.reason), ['deleted']);
 });
 
@@ -157,7 +157,7 @@ t('a failure while applying leaves no receipt, so the redelivery applies exactly
         svc.store.apply = original;
     }
     assert.strictEqual((await search('tauword')).length, 1);
-    assert.strictEqual((await svc.outbox.all()).filter(x => x.payload.id === d.id).length, 1);
+    assert.strictEqual((await outboxEvents(svc.db)).filter(x => x.payload.id === d.id).length, 1);
 });
 
 t('OpenVibe.Sources item documents (the first real producer) index for staff only', async () => {
