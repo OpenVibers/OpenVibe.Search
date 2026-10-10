@@ -120,7 +120,8 @@ unless `SEARCH_SAVED_NOTIFY=1`; they also need `OV_OAUTH_CLIENT_SECRET` (the Net
 `saved_notify: "off (…)"`, never as a failure. Every `SEARCH_SAVED_NOTIFY_INTERVAL_MS` (15 min) the
 notifier takes up to `SEARCH_SAVED_NOTIFY_BATCH` (100) saved searches, longest waiting first, and runs
 each as its owner for documents indexed (a new revision) after its watermark, `last_run_at` (else
-`created_at`). A search with new hits gets one notification through OpenVibe.Network (type
+`created_at`). A search with new hits gets one notification through OpenVibe.Network via
+[server/network-push.js](server/network-push.js), an adapter over `openvibe-sdk/notifications` (type
 `SEARCH_SAVED_MATCH`, service `search`, category `service`: how many, the top title, a link to the
 search page with that query); the person is resolved to Network's user id first
 (`GET /internal/identity/resolve`, then `POST /internal/notifications/push`). The watermark moves to
