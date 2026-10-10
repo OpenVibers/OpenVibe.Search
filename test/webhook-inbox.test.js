@@ -120,6 +120,18 @@ t('unknown owners, subject mismatches and invalid documents are refused', async 
     assert.strictEqual((await search('sigmaword')).length, 0);
 });
 
+t('the record products are accepted owners: a Work job, a Rent listing, a Help article, an Inventory definition and a Quest', async () => {
+    const docs = [
+        doc({ owner: 'work', type: 'job', id: 'job_0123456789abcdefghjkmnpqrs', canonical_url: 'https://openvibe.work/jobs/job_0123456789abcdefghjkmnpqrs', title: 'Backend engineer recordsword', authorship: 'imported' }),
+        doc({ owner: 'rent', type: 'listing', id: 'rnt_01JAB2C3D4E5F6G7H8J9K0MNPQ', canonical_url: 'https://openvibe.rent/listings/rnt_01JAB2C3D4E5F6G7H8J9K0MNPQ', title: 'Room near the park recordsword' }),
+        doc({ owner: 'help', type: 'article', id: 'openvibe.live:how-do-i-go-live', canonical_url: 'https://openvibe.help/a/openvibe.live/how-do-i-go-live', title: 'How do I go live recordsword' }),
+        doc({ owner: 'inventory', type: 'definition', id: 'itd_01JAB2C3D4E5F6G7H8J9K0MNPQ', canonical_url: 'https://openvibe.inventory/definitions/itd_01JAB2C3D4E5F6G7H8J9K0MNPQ', title: 'Fire Name recordsword' }),
+        doc({ owner: 'quest', type: 'quest', id: 'go-live', canonical_url: 'https://openvibe.quest/quests/go-live', title: 'Go live once recordsword' }),
+    ];
+    for (const d of docs) assert.strictEqual((await deliver(svc.base, indexEvent(d))).body.outcome, 'applied', d.owner);
+    assert.deepStrictEqual((await search('recordsword')).map((r) => r.owner).sort(), ['help', 'inventory', 'quest', 'rent', 'work']);
+});
+
 t('events that are not index documents are acknowledged and ignored', async () => {
     const e = { ...indexEvent(doc()), event_type: 'wiki.page.published' };
     const r = await deliver(svc.base, e);
