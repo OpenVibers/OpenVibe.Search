@@ -9,7 +9,7 @@
   "domain": "search.openvibe.network (vhost in deploy/nginx; the service manifest records the search page and query API as public since 2026-09-23)",
   "contracts": "openvibe-contracts v0.128.0",
   "sdk": "openvibe-sdk v0.35.0",
-  "shared": "openvibe-shared v2.21.0",
+  "shared": "openvibe-shared v2.21.1",
   "capabilities": [
     "search.document.write",
     "search.query.delegate",
