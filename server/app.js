@@ -15,7 +15,7 @@ const { createLimits } = require('./actor-limits');
 const { createIndexNow } = require('openvibe-shared/indexnow');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, relay, purges, purger, saved, searcher: givenSearcher = null, notifier = null, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -49,7 +49,7 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
 
     // This site's own pinned copy of the OpenVibe Frame's browser files (openvibe-shared/serve).
     app.use('/shared', require('openvibe-shared/serve').handler());
-    app.use(webhookRouter({ config, db, store, relay, log, now }));
+    app.use(webhookRouter({ config, db, store, outbox, log, now }));
 
     app.use('/api', express.json({ limit: config.maxBodyBytes, type: ['application/json', 'application/*+json'] }));
 
@@ -59,7 +59,7 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
 
     // Readiness (openvibe-shared/ready): 503 only when the database (documents and full-text tables)
     // fails; the Network key and index consistency are optional and degrade it (see observability.js).
-    const readiness = createSearchReadiness({ db, config, engine, store, outbox, relay, purges, purger, saved, notifier, release: release.release });
+    const readiness = createSearchReadiness({ db, config, engine, store, outbox, purges, purger, saved, notifier, release: release.release });
     app.get('/api/ready', readiness.handler);
     // GET /release.json (ADR-016) and POST /release-metrics (open tabs' update reports into /metrics).
     release.mount(app, { registry: metrics.registry });
@@ -68,7 +68,7 @@ function createApp({ config, db, store, engine, auth, outbox, relay, purges, pur
     // One per-actor limiter for the API routes below (server/actor-limits.js); the Events webhook,
     // health, ready, release.json and metrics above are never limited.
     const limits = createLimits({ config, now: now || (() => Date.now()), registry: metrics.registry, log });
-    app.use(documentsRouter({ store, auth, db, relay, purges, limits }));
+    app.use(documentsRouter({ store, auth, db, outbox, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and

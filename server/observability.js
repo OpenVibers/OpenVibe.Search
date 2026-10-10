@@ -35,7 +35,7 @@ function readers(db, engine) {
     };
 }
 
-function createSearchReadiness({ db, config, engine, store, outbox, relay, purges = null, purger = null, saved = null, notifier = null, release = null }) {
+function createSearchReadiness({ db, config, engine, store, outbox, purges = null, purger = null, saved = null, notifier = null, release = null }) {
     const read = readers(db, engine);
     return createReadiness({
         service: 'search',
@@ -83,7 +83,7 @@ function createSearchReadiness({ db, config, engine, store, outbox, relay, purge
             return {
                 engine: engine.name,
                 documents: dbOk ? await store.counts() : null,
-                outbox: dbOk ? { pending: await outbox.pending(), rejected: await outbox.rejected(), relay: config.events.url ? (relay.running() ? 'running' : 'stopped') : 'off (EVENTS_URL unset)' } : null,
+                outbox: dbOk ? await outbox.status() : null,
                 webhook: config.events.webhookSecrets.length ? 'on' : 'off (SEARCH_EVENTS_SECRET unset)',
                 purge: dbOk && purges ? {
                     cdn: purges.cdnOn() ? (purger && purger.running() ? 'cloudflare' : 'cloudflare (stopped)') : 'off (CLOUDFLARE_PURGE_TOKEN unset)',
@@ -110,8 +110,8 @@ function registerSearchGauges(registry, { db, engine, outbox, purges = null }) {
         name: 'search_documents_indexed', help: 'Documents in the full-text index, by audience', labelNames: ['index'],
         collect: async () => Object.entries(await read.indexed()).map(([index, value]) => ({ labels: { index }, value })),
     });
-    registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: async () => await outbox.pending() });
-    registry.gauge({ name: 'search_outbox_rejected', help: 'Events OpenVibe.Events refused for good', collect: async () => await outbox.rejected() });
+    registry.gauge({ name: 'search_outbox_pending', help: 'Events waiting in the outbox', collect: async () => (await outbox.status()).pending });
+    registry.gauge({ name: 'search_outbox_rejected', help: 'Events OpenVibe.Events refused for good', collect: async () => (await outbox.status()).rejected });
     if (purges) {
         registry.gauge({
             name: 'search_cdn_purges', help: 'Cloudflare cache purges of removed documents, by state', labelNames: ['state'],

@@ -75,7 +75,7 @@ function load(env = process.env) {
         // PostgreSQL (ADR-035): DATABASE_URL serves (PgBouncer), DATABASE_DIRECT_URL migrates (owner role).
         db: { url: env.DATABASE_URL || '', directUrl: env.DATABASE_DIRECT_URL || '' },
 
-        // Events: the outbox relays only when EVENTS_URL is set (rows wait otherwise).
+        // Events: the SDK outbox relays with EVENTS_URL and the OAuth client secret (rows wait otherwise).
         events: {
             url: strip(env.EVENTS_URL || ''),
             relayIntervalMs: int(env.EVENTS_RELAY_INTERVAL_MS, 2000),

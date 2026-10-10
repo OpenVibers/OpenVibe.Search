@@ -34,6 +34,7 @@
     "server-rendered search page",
     "owner removal feed",
     "Cloudflare purge queue (inert until CLOUDFLARE_PURGE_TOKEN is set)",
+    "openvibe-sdk/events outbox in service_outbox (legacy event_outbox retained for N-1 rollback)",
     "per-actor limits (openvibe-sdk/limits)"
   ],
   "updated": "2026-10-10"

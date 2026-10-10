@@ -119,7 +119,7 @@ function documentFromEvent(event, owners) {
     return { doc };
 }
 
-function webhookRouter({ config, db, store, relay, log = console, now }) {
+function webhookRouter({ config, db, store, outbox, log = console, now }) {
     const router = express.Router();
     const inbox = createInbox(db, { now });
 
@@ -160,7 +160,7 @@ function webhookRouter({ config, db, store, relay, log = console, now }) {
                 const out = await store.apply(parsed.doc, { via: 'event', eventId: event.event_id, traceId });
                 return out.outcome;
             });
-            if (!r.duplicate && r.outcome === 'applied' && relay) relay.flush().catch(() => {});
+            if (!r.duplicate && r.outcome === 'applied') outbox.kick().catch(() => {});
             res.status(200).json({ event_id: event.event_id, duplicate: Boolean(r.duplicate), outcome: r.outcome || null });
         } catch (err) { return next(err); } });   // Express 4 does not catch an async handler's rejection
 

@@ -85,6 +85,16 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
         return 'noindex';
     }
 
+    /** Keep Search's envelope defaults while the SDK fills event_id, source, version and timestamp. */
+    function eventEnvelope(event_type, subject, payload, traceId) {
+        return {
+            event_type, subject, payload,
+            actor: { type: 'service', id: 'search' },
+            priority: 'important', visibility: 'internal',
+            ...(traceId && /^[0-9a-f]{32}$/.test(traceId) ? { trace_id: traceId } : {}),
+        };
+    }
+
     async function announce(prevRow, prevDoc, doc, exposure, traceId) {
         const prevExposure = prevRow ? prevRow.exposure : EXPOSURE.none;
         const subject = { type: 'document', id: `${doc.owner}/${doc.type}/${doc.id}`, revision: doc.revision };
@@ -98,22 +108,17 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
                 // Only a URL that was public already: caches and sitemaps purge it.
                 canonical_url: wasPublic ? prevRow.canonical_url : null,
             };
-            const env = await outbox.enqueue({ event_type: 'search.document.removed', subject, trace_id: traceId, payload });
+            const env = await outbox.emit(eventEnvelope('search.document.removed', subject, payload, traceId));
             // Search's own consumer: the owners' removal feed and the CDN purge queue (purge.js).
             if (purges) await purges.record(env.event_id, payload);
         }
         if (!doc.deleted && exposure > EXPOSURE.none) {
-            await outbox.enqueue({
-                event_type: 'search.document.indexed',
-                subject,
-                trace_id: traceId,
-                payload: {
+            await outbox.emit(eventEnvelope('search.document.indexed', subject, {
                     owner: doc.owner, type: doc.type, id: doc.id, revision: doc.revision,
                     exposure: EXPOSURE_NAME[exposure],
                     reindexed: Boolean(prevRow),
                     canonical_url: exposure >= EXPOSURE.public_unlisted ? doc.canonical_url : null,
-                },
-            });
+            }, traceId));
         }
     }
 
