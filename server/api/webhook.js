@@ -138,7 +138,7 @@ function webhookRouter({ config, db, store, outbox, log = console, now }) {
             try { body = JSON.parse(raw.toString('utf8')); } catch { body = null; }
             const event = body && body.event;
             if (!event || typeof event.event_id !== 'string' || !/^evt_[0-9A-HJKMNP-TV-Z]{26}$/.test(event.event_id)) {
-                return http.sendProblem(res, 400, 'search.bad_delivery', { detail: 'body must be { event: <envelope>, seq }', ctx });
+                return http.sendProblem(res, 400, 'search.bad_delivery', { detail: 'body must be { event: <envelope> }', ctx });
             }
 
             const r = await inbox.once(event.event_id, async () => {
