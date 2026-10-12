@@ -358,7 +358,7 @@ product zones, then add `CLOUDFLARE_PURGE_TOKEN` and `CLOUDFLARE_ZONE_IDS` to
 
 ## Launch rule
 
-This repository does not make the product real, and the domain keeps its placeholder page on
+This repository does not make the product real, and the domain kept its placeholder page on
 [OpenVibers/OpenVibe.Sites](https://github.com/OpenVibers/OpenVibe.Sites) until: an owning runtime
 with health/readiness; Network identity and service principals; a public route useful without
 JavaScript (the search page at `/`); real
