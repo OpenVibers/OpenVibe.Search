@@ -45,8 +45,8 @@ function parseZones(v) {
 const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupons', 'trade',
     'community', 'live', 'media', 'codes', 'games', 'tools', 'sources',
     // Record products (openvibe-publishing/search-feed, contracts 0.128.0): job listings, rental listings, help
-    // articles, item definitions and quests.
-    'work', 'rent', 'help', 'inventory', 'quest'];
+    // articles, item definitions and quests; the hosting catalog's plans and providers (contracts 0.145.0).
+    'work', 'rent', 'help', 'inventory', 'quest', 'host'];
 
 function load(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
