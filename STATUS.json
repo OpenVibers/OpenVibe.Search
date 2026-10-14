@@ -21,7 +21,7 @@
   ],
   "engine": "postgresql-fts (docs/adr-engine.md)",
   "deployed": true,
-  "deployment": "Deployed with `sudo ovhost deploy search`: /opt/openvibe.search, unit openvibe-search, 127.0.0.1:4710, principal search, Events subscription *.index_document.*, accepted event owners wiki, blog, news, reviews, deals, coupons, trade, community, live, media, codes, games, tools, sources, work, rent, help, inventory, quest, host. On 2026-09-23 the production index held 10 documents, all tombstones (wiki), 0 public. Restore drill passed 2026-09-23.",
+  "deployment": "Deployed with `sudo ovhost deploy search`: /opt/openvibe.search, unit openvibe-search, 127.0.0.1:4710, principal search, Events subscription *.index_document.*, accepted event owners (code defaults in server/config.js; SEARCH_EVENT_OWNERS in /etc/openvibe/search.env not checked) wiki, blog, news, reviews, deals, coupons, trade, community, live, media, codes, games, tools, sources, work, rent, help, inventory, quest, host. On 2026-10-10 the production index held, per the plan record, 1976 work jobs, 51 help articles and 70 inventory items (2097 documents) plus wiki tombstones; how many of them are public was not measured. Restore drill passed 2026-09-23.",
   "indexedProducers": [
     "work (1976 jobs, 2026-10-10)",
     "help (51 articles, 2026-10-10)",
@@ -33,7 +33,7 @@
     "facets",
     "suggestions",
     "freshness-weighted ranking",
-    "saved searches with notifications through Network",
+    "saved searches with notifications through Network (needs SEARCH_SAVED_NOTIFY=1 and OV_OAUTH_CLIENT_SECRET; not yet verified in production)",
     "server-rendered search page",
     "owner removal feed",
     "Cloudflare purge queue (inert until CLOUDFLARE_PURGE_TOKEN is set)",
