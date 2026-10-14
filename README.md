@@ -4,7 +4,7 @@
 > an ACL-filtered query API, and deletion/visibility propagation.
 
 **Status:** alpha (roadmap Wave 14). Runs on the production host (127.0.0.1:4710, since 2026-09-23)
-and is fed through Events; on 2026-09-23 the index held only 10 wiki tombstones and 0 public documents.  
+and is fed through Events; on 2026-10-10 the index held, per the plan record, 1976 work jobs, 51 help articles and 70 inventory items (2097 documents) plus wiki tombstones; how many are public was not measured.  
 **Domain:** `search.openvibe.network`, served by this repository's vhost
 ([deploy/nginx/](deploy/nginx/search.openvibe.network.conf); the service manifest records the search
 page and query API as public since 2026-09-23. Install steps: [Public host](#public-host))  
@@ -281,11 +281,10 @@ Never limited: the signed Events deliveries (`POST /internal/events`), `/api/hea
 - per-actor limits: 429 `rate_limited` with Retry-After per principal, person or address, another
   caller unaffected, deliveries and health never limited (`test/actor-limits.test.js`)
 
-Not yet demonstrated: a document with content indexed end to end in production. The Events
-subscription delivered 20 wiki events; the 10 upserts were rejected (`owner_not_accepted`, since
-fixed) and only the 10 tombstones landed. Wiki pages enter the index once a person reviews them;
-Sources has every seed disabled. The removal feed and the CDN purge queue exist, but no product
-polls the feed yet and the purge needs a token with Cache Purge permission (the current Cloudflare
+As of 2026-10-10, work, help and inventory documents are indexed in production. The first wiki
+upserts were rejected (`owner_not_accepted`, since fixed), and only the wiki tombstones landed.
+Wiki pages enter the index once a person reviews them; Sources has every seed disabled.
+The removal feed and the CDN purge queue exist, but no product polls the feed yet and the purge needs a token with Cache Purge permission (the current Cloudflare
 token has DNS and rulesets scope only).
 
 Restore drill: `ovhost drill search` passed on the production host on 2026-09-23 (integrity check,
