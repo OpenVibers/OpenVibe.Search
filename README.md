@@ -43,6 +43,15 @@ is on. `GET /metrics` (openvibe-shared/metrics) answers direct loopback callers 
 by route template, `search_documents{exposure}`, `search_documents_indexed{index}` and the outbox
 backlog.
 
+Request telemetry is aggregated by route template, method and status class, never by raw URL, and
+leaves out `/shared` files, static assets, health, readiness and `/metrics`. Once a minute, one
+`http.request` sample per key plus the active-requests, p95 latency and event-loop-lag gauges is
+written to this service's own `telemetry_samples` table (openvibe-sdk 0.46 telemetry, the
+`platform.telemetry-sample@1` shape, created by `migrations/0003_telemetry.sql`), and rows older
+than 14 days are deleted daily. `server/app.js` mounts the SDK's `telemetryMiddleware` (a no-op
+until init); `server/index.js` calls `telemetry.init()` at production start, runs the 14-day
+retention and flushes on stop.
+
 ## Query API
 
 ```http
