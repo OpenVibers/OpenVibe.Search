@@ -98,9 +98,9 @@ if (require.main === module) {
         // then handles.close() (the prune timer and JWKS refresher stopped, the relay, purger and saved-search
         // notifier stopped, the server closed, the database closed; a rejection exits 1); past 10 s the process exits 1.
         // Request telemetry (openvibe-sdk/service, plan T1): one aggregated sample per route template, method and status
-        // class each 15 s, stored in this service's telemetry_samples table; rows older than 30 days go daily.
-        telemetry.init({ service: 'search', sink: createPgTelemetrySink({ db: handles.db, log: console }), skipPrefixes: ['/shared'] });
-        const telemetryRetention = startTelemetryRetention({ db: handles.db, log: console });
+        // class each minute, stored in this service's telemetry_samples table; rows older than 14 days go daily.
+        telemetry.init({ service: 'search', sink: createPgTelemetrySink({ db: handles.db, log: console }), skipPrefixes: ['/shared'], intervalMs: 60_000 });
+        const telemetryRetention = startTelemetryRetention({ db: handles.db, log: console, olderThanDays: 14 });
         gracefulStop({ name: 'search', server: handles.server, handles, drainMs: 8000, deadlineMs: 10000, stop: [async () => { if (telemetryRetention) await telemetryRetention.stop(); await telemetry.stop(); }] });
     }).catch((err) => {
         console.error(`[search] failed to start: ${err.stack || err}`);
