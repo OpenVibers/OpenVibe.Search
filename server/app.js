@@ -25,6 +25,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // HTTP golden signals by route template, process metrics, release_info and the Search gauges;
     // GET /metrics answers direct loopback callers only (Track O).
     const metrics = instrument(app, { service: 'search', release: release.release });
+    app.use(require('openvibe-sdk/service').telemetryMiddleware);   // request telemetry: a no-op until server/index.js calls telemetry.init()
     registerSearchGauges(metrics.registry, { db, engine, outbox, purges });
     app.use(http.middleware());
     // One W3C trace across services (openvibe-shared/trace): calls made while serving a request carry its traceparent.
