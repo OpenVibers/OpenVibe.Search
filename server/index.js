@@ -14,7 +14,8 @@ const { createStore } = require('./store');
 const { createServiceOutbox } = require('openvibe-sdk/events');
 const contracts = require('openvibe-contracts');
 const { jwksClient } = require('openvibe-sdk/auth');
-const { gracefulStop } = require('openvibe-sdk/service');
+const { gracefulStop, telemetry } = require('openvibe-sdk/service');
+const { createPgTelemetrySink, startTelemetryRetention } = require('openvibe-sdk/telemetry');
 const { createAuth } = require('./auth');
 const { createPurgeQueue, createPurger } = require('./purge');
 const { createSavedSearches } = require('./saved');
@@ -96,7 +97,11 @@ if (require.main === module) {
         // SIGTERM/SIGINT (openvibe-sdk/service, docs/service.md's handles family): requests in flight get 8 s,
         // then handles.close() (the prune timer and JWKS refresher stopped, the relay, purger and saved-search
         // notifier stopped, the server closed, the database closed; a rejection exits 1); past 10 s the process exits 1.
-        gracefulStop({ name: 'search', server: handles.server, handles, drainMs: 8000, deadlineMs: 10000 });
+        // Request telemetry (openvibe-sdk/service, plan T1): one aggregated sample per route template, method and status
+        // class each 15 s, stored in this service's telemetry_samples table; rows older than 30 days go daily.
+        telemetry.init({ service: 'search', sink: createPgTelemetrySink({ db: handles.db, log: console }), skipPrefixes: ['/shared'] });
+        const telemetryRetention = startTelemetryRetention({ db: handles.db, log: console });
+        gracefulStop({ name: 'search', server: handles.server, handles, drainMs: 8000, deadlineMs: 10000, stop: [async () => { if (telemetryRetention) await telemetryRetention.stop(); await telemetry.stop(); }] });
     }).catch((err) => {
         console.error(`[search] failed to start: ${err.stack || err}`);
         process.exit(1);
