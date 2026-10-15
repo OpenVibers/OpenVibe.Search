@@ -100,6 +100,7 @@ t('/updates is the shared log; the old Frame init script is gone', async () => {
     assert.strictEqual(r.status, 200);
     assert.ok(r.text.includes('What shipped on OpenVibe.Search') && r.text.includes('data-ov-shipped="log" data-service="search"'));
     assert.match(r.text, /<link rel="canonical" href="https?:\/\/[^"/]+\/updates">/);
+    assert.strictEqual((r.text.match(/<h1[\s>]/g) || []).length, 1, 'one heading: the log\'s own');
     assert.match(r.text, /<meta name="ov-boost" content="search@[^"]+">/);
     assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
 });

@@ -219,7 +219,8 @@ function frontShowcase(owners = DEFAULT_EVENT_OWNERS) {
     return showcase.features({ id: 'sources', title: 'Browse by source', lede: 'Each service sends what it publishes as it publishes it; open one to see its public documents.', items });
 }
 
-function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false }) {
+// ownHeading: the body brings its own <h1> (the update log), so the search page's heading and lede stay out.
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false }) {
     const url = noindex ? undefined : canonical;
     return shell.page({
         ...FRAME,
@@ -269,7 +270,7 @@ ${front ? showcase.hero({
         eyebrow: 'OpenVibe.Search',
         title: 'Search the', accent: 'OpenVibe network',
         lede: "Wiki pages, posts, stories, pastes, tools and more from the network's services, in one index. Alpha: it holds only what they have sent so far.",
-    }) : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
+    }) : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
@@ -309,7 +310,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Cache-Control', cache.htmlHeaders({ maxAge: 60 }));
-        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
+        res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', ownHeading: true, body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 
     // Crawl files (openvibe-shared/seo): the existing robots rules kept, plus /llms.txt and /sitemap.xml.
