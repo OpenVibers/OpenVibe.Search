@@ -46,7 +46,10 @@ const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupo
     'community', 'live', 'media', 'codes', 'games', 'tools', 'sources',
     // Record products (openvibe-publishing/search-feed, contracts 0.128.0): job listings, rental listings, help
     // articles, item definitions and quests; the hosting catalog's plans and providers (contracts 0.145.0).
-    'work', 'rent', 'help', 'inventory', 'quest', 'host'];
+    'work', 'rent', 'help', 'inventory', 'quest', 'host',
+    // OpenVibe.Video's uploads (MediaHub, service id media-hub) come through the owner API, not Events (an event
+    // type has no hyphen); listed so its front-page card and ?owner= filter exist.
+    'media-hub'];
 
 function load(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
