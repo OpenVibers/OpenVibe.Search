@@ -196,7 +196,7 @@ const SOURCES = {
     live: ['OpenVibe.Live', 'Channels, streams and clips.'],
     media: ['OpenVibe.Media', 'Public videos, clips and files.'],
     codes: ['OpenVibe.Codes', 'The developer docs and API reference.'],
-    games: ['OpenVibe.Games', 'Browser games.'],
+    games: ['OpenVibe.Games', 'Browser games and the worlds players build.'],
     tools: ['OpenVibe.Tools', 'Every online tool, by what it does.'],
     sources: ['OpenVibe.Sources', 'The registry of news and data sources.'],
     work: ['OpenVibe.Work', 'Job listings from open boards, each linked to the original.'],
@@ -204,8 +204,10 @@ const SOURCES = {
     help: ['OpenVibe.Help', 'Answers about every OpenVibe site.'],
     inventory: ['OpenVibe.Inventory', 'Items, badges and effects you can earn and wear.'],
     quest: ['OpenVibe.Quest', 'Quests across the network and the badges they give.'],
+    host: ['OpenVibe.Host', 'Hosting plans and offers, compared by price.'],
+    'media-hub': ['OpenVibe.Video', 'Videos people upload and record, with AI captions.'],
 };
-const ICON_OF = { sources: 'docs' };
+const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
 // The front page's kit sections sit in this page's 760 px column, which already has its gutter.
 const FRONT_CSS = `<style>
 main .sc-hero, main .sc-sec { padding-left: 0; padding-right: 0; }
