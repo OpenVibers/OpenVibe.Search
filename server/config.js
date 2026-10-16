@@ -48,8 +48,8 @@ const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupo
     // articles, item definitions and quests; the hosting catalog's plans and providers (contracts 0.145.0).
     'work', 'rent', 'help', 'inventory', 'quest', 'host',
     // Owner-API writers listed so their front-page card and ?owner= filter exist: OpenVibe.Video's uploads (MediaHub,
-    // service id media-hub; an event type has no hyphen) and OpenVibe.Food's checked recipes.
-    'media-hub', 'food'];
+    // service id media-hub; an event type has no hyphen), OpenVibe.Food's checked recipes and OpenVibe.Bot's model pages.
+    'media-hub', 'food', 'bot'];
 
 function load(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';

@@ -207,6 +207,7 @@ const SOURCES = {
     host: ['OpenVibe.Host', 'Hosting plans and offers, compared by price.'],
     'media-hub': ['OpenVibe.Video', 'Videos people upload and record, with AI captions.'],
     food: ['OpenVibe.Food', 'Budget recipes, costed from the food list.'],
+    bot: ['OpenVibe.Bot', 'The robots you can drive from a browser, and how to connect each.'],
 };
 const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
 // The front page's kit sections sit in this page's 760 px column, which already has its gutter.
