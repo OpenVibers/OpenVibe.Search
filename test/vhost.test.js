@@ -28,6 +28,7 @@ t('wildcard certificate and client address from $remote_addr only', () => {
 t('/metrics is 404; owner API, webhook and document writes are loopback-only', () => {
     assert.match(conf, /location ~\* \^\/metrics\(\/\|\$\) \{ return 404; \}/, '/metrics in any letter case');
     assert.match(block('location = /updates'), /limit_except GET \{ deny all; \}/, 'the update log, GET only');
+    assert.match(conf, /location = \/release-metrics \{ limit_except POST \{ deny all; \} client_max_body_size 4k; proxy_pass http:\/\/127\.0\.0\.1:4710; \}/, 'open tabs\' release reports reach the app (POST only, small)');
     assert.match(conf, /location \^~ \/shared\/ \{ limit_except GET \{ deny all; \} proxy_pass http:\/\/127\.0\.0\.1:4710; \}/, 'the site\'s own Frame files');
     assert.match(block('location ^~ /internal/'), loopbackOnly);
     assert.match(block('location ^~ /api/v1/owners/'), loopbackOnly);
