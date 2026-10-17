@@ -380,6 +380,6 @@ Part of the [OpenVibe network](https://openvibe.network). Built in the open by [
 
 <!-- versions:start -->
 - openvibe-contracts: v0.195.0
-- openvibe-sdk: v0.49.1
+- openvibe-sdk: v0.50.1
 - openvibe-shared: v4.2.1
 <!-- versions:end -->
