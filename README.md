@@ -88,7 +88,7 @@ route index at `/`.
 
 The plain front page is the network's search front page (`server/web/page.js`, `server/web/front-data.js`):
 example searches, the index in numbers (public listed documents, sites sending, kinds, added or updated
-this week), shelves of the newest public documents of each kind (streams, clips, blog posts, jobs,
+this week), shelves of the newest public documents of each kind (streams, blog posts, jobs,
 hosting plans, coupons, forum threads, help articles, places, rental cities, quests, tools; read with
 the same searcher and anonymous viewer as `GET /api/v1/search?owner=&type=`, so nothing private or draft
 can appear; community pastes, whose titles an AI writes from a picture, and placeholder titles are not
