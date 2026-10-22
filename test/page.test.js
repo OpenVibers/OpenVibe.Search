@@ -71,18 +71,19 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     // The rendered head (openvibe-shared/shell): one title, the canonical, robots, the AI summary and JSON-LD.
     const head = r.text.slice(0, r.text.indexOf('</head>'));
     assert.strictEqual((head.match(/<title>/g) || []).length, 1);
-    assert.match(head, /<title>OpenVibe\.Search<\/title>/);
+    assert.match(head, /<title>OpenVibe\.Search: search every OpenVibe site at once<\/title>/);
     assert.match(head, /<link rel="canonical" href="https?:\/\/[^"/]+\/">/);
     assert.match(head, /<meta name="robots" content="index, follow[^"]*">/);
-    assert.match(head, /<meta name="description" content="Search what the OpenVibe network&#39;s services have published\.">/);
+    assert.match(head, /<meta name="description" content="Search jobs, streams, clips, blog posts, hosting plans, coupons, reviews, tools and help from every OpenVibe site in one place\.">/);
     assert.match(head, /<meta name="ai-summary" content="[^"]+">/);
     assert.match(head, /<script type="application\/ld\+json">/);
     assert.ok(head.includes('data-ov-icon="network"') && head.includes('<link rel="apple-touch-icon" href="https://openvibe.network/assets/'), 'the network app icons');
     assert.ok(head.includes('<meta name="color-scheme" content="light dark">') && head.includes('<style>'), 'the page\'s own head');
-    // JSON-LD on the front page only: the WebSite (with its SearchAction) and the search application.
+    // JSON-LD on the front page only: the WebSite (with its SearchAction), the search application, what the index holds
+    // (an ItemList of the sources the page links) and the questions it shows (FAQPage).
     const ld = [...r.text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
     // (and the WebPage of the AI summary).
-    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'WebPage']);
+    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'ItemList', 'FAQPage', 'WebPage']);
     assert.strictEqual(ld[0].potentialAction.target.urlTemplate.endsWith('/?q={search_term_string}'), true);
     assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
     assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
@@ -91,7 +92,7 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     // is the element that changes, so a same-release move happens in place (any doubt is a normal load).
     assert.match(r.text, /<meta name="ov-boost" content="search@[^"]+">/);
     assert.match(r.text, /<script src="\/shared\/boost\.js\?v=[^"]+" data-main="#main" defer><\/script>/);
-    assert.ok(r.text.includes('<main id="main">'), 'the changing part');
+    assert.ok(r.text.includes('<main id="main" class="front">'), 'the changing part');
 });
 
 t('/updates is the shared log; the old Frame init script is gone', async () => {

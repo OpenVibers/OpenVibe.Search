@@ -86,6 +86,16 @@ The search page at `/` runs the same query as HTML for browsers (no JavaScript; 
 pages `noindex`; anonymous unless this host has an `ov_token` cookie). Other clients get a text
 route index at `/`.
 
+The plain front page is the network's search front page (`server/web/page.js`, `server/web/front-data.js`):
+example searches, the index in numbers (public listed documents, sites sending, kinds, added or updated
+this week), shelves of the newest public documents of each kind (streams, clips, blog posts, jobs,
+hosting plans, coupons, forum threads, help articles, places, rental cities, quests, tools; read with
+the same searcher and anonymous viewer as `GET /api/v1/search?owner=&type=`, so nothing private or draft
+can appear; community pastes, whose titles an AI writes from a picture, and placeholder titles are not
+shelved), the sources with what each holds, the API samples and the questions (JSON-LD WebSite with its
+SearchAction, WebApplication, ItemList of the sources and FAQPage). It is read once per five minutes;
+an empty shelf is left out, and without the numbers the sources fall back to the static list.
+
 ### Ranking
 
 Full-text results are ordered by full-text relevance (title ×10, summary ×4, body ×1) multiplied by a

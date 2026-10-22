@@ -21,7 +21,8 @@ const { AuthError, ANONYMOUS } = require('../auth');
 const { QueryError, one } = require('../api/query');
 
 const SITE_NAME = 'OpenVibe.Search';
-const SITE_DESCRIPTION = "Search what the OpenVibe network's services have published.";
+const SITE_DESCRIPTION = 'Search jobs, streams, clips, blog posts, hosting plans, coupons, reviews, tools and help from every OpenVibe site in one place.';
+const FRONT_TITLE = 'OpenVibe.Search: search every OpenVibe site at once';
 
 // The deployed release (app.js sets it from openvibe-shared/release): openvibe-shared/boost swaps a page in
 // place only between pages of the same release, and does a normal load across a deploy.
@@ -95,11 +96,14 @@ const TEXT_INDEX = [
  * purpose) and OpenVibe.Search as the web application it is. Nothing private: both nodes describe
  * the public front page only.
  */
-function homeJsonLd(origin) {
+function homeJsonLd(origin, data = null) {
     return [
         seo.jsonLd.website({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, searchUrl: `${origin}/?q={q}` }),
         seo.jsonLd.softwareApp({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, category: 'SearchApplication' }),
-    ];
+        // What the index holds, as a list of the filtered searches the page links (only when the page shows them).
+        data && data.coverage.length ? seo.jsonLd.itemList('What OpenVibe.Search holds', sourcesOf(data).map((r) => ({ name: `${(SOURCES[r.owner] || [r.owner])[0]}: ${r.n} documents`, url: `${origin}/?owner=${encodeURIComponent(r.owner)}` })), { url: `${origin}/` }) : null,
+        seo.jsonLd.faq(FAQ.map(([q, a]) => ({ q, a }))),
+    ].filter(Boolean);
 }
 
 /** robots.txt: the same Disallows this site already had, plus the sitemap and the AI/search bots by name. */
@@ -200,7 +204,7 @@ const SOURCES = {
     tools: ['OpenVibe.Tools', 'Every online tool, by what it does.'],
     sources: ['OpenVibe.Sources', 'The registry of news and data sources.'],
     work: ['OpenVibe.Work', 'Job listings from open boards, each linked to the original.'],
-    rent: ['OpenVibe.Rent', 'Places and things people offer for rent.'],
+    rent: ['OpenVibe.Rent', 'City pages with what rent costs there and every rental site\'s search for it.'],
     help: ['OpenVibe.Help', 'Answers about every OpenVibe site.'],
     inventory: ['OpenVibe.Inventory', 'Items, badges and effects you can earn and wear.'],
     quest: ['OpenVibe.Quest', 'Quests across the network and the badges they give.'],
@@ -210,6 +214,40 @@ const SOURCES = {
     bot: ['OpenVibe.Bot', 'The robots you can drive from a browser, and how to connect each.'],
 };
 const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
+// What a count of each kind is called on the front page ("10,621 job listings"); a kind not named here is "documents".
+const KIND_WORDS = {
+    'work/job': ['job listing', 'job listings'], 'community/paste': ['paste', 'pastes'], 'community/thread': ['forum thread', 'forum threads'],
+    'reviews/entity': ['place or product', 'places and products'], 'rent/city': ['rental city page', 'rental city pages'], 'rent/homes_city': ['homes city page', 'homes city pages'],
+    'live/vod': ['recorded stream', 'recorded streams'], 'live/clip': ['clip', 'clips'], 'live/channel': ['channel', 'channels'], 'host/tld': ['domain ending', 'domain endings'],
+    'host/plan': ['hosting plan', 'hosting plans'], 'host/provider': ['hosting provider', 'hosting providers'], 'tools/tool': ['tool', 'tools'], 'coupons/coupon': ['coupon', 'coupons'],
+    'coupons/merchant': ['store', 'stores'], 'help/article': ['help article', 'help articles'], 'blog/post': ['blog post', 'blog posts'], 'inventory/definition': ['item', 'items'],
+    'quest/quest': ['quest', 'quests'], 'bot/model': ['robot model', 'robot models'], 'wiki/page': ['wiki page', 'wiki pages'], 'news/story': ['story', 'stories'],
+    'deals/offer': ['deal', 'deals'], 'games/world': ['creator world', 'creator worlds'], 'media-hub/video': ['video', 'videos'], 'food/recipe': ['recipe', 'recipes'],
+};
+const fmt = (n) => Number(n).toLocaleString('en-US');
+const kindWords = (owner, type, n) => { const w = KIND_WORDS[`${owner}/${type}`]; return `${fmt(n)} ${w ? w[n === 1 ? 0 : 1] : n === 1 ? 'document' : 'documents'}`; };
+/** The sources with public documents, most first, each with its kinds (most first). */
+function sourcesOf(data) {
+    const by = new Map();
+    for (const r of data.coverage) {
+        if (!by.has(r.owner)) by.set(r.owner, { owner: r.owner, n: 0, kinds: [] });
+        const o = by.get(r.owner);
+        o.n += r.n;
+        o.kinds.push(r);
+    }
+    return [...by.values()].sort((a, b) => b.n - a.n || a.owner.localeCompare(b.owner));
+}
+// Searches that find something today, one click each (the result pages are noindex; these are links, not claims).
+const EXAMPLES = ['raspberry pi', 'remote', 'vps', 'dns', 'austin', 'patch notes', 'pizza', 'python'];
+/** Questions people ask first, answered from the README and the code. */
+const FAQ = [
+    ['What does OpenVibe.Search search?', 'What the OpenVibe sites publish: jobs, streams and clips, blog posts, forum threads, hosting plans, coupons, places and products, rental cities, tools, help articles, quests and more. Each site sends its documents as it publishes them.'],
+    ['Does it show anything private?', 'Never to anyone who should not see it. Signed out, you see public, published documents only. Private, draft and deleted documents are never listed, and a document that is removed or made private leaves the results at once.'],
+    ['How fresh are the results?', 'A document is indexed when its site publishes or changes it, through OpenVibe.Events, so new jobs, streams and posts show up within moments.'],
+    ['Can I be told about new results?', 'Yes. Save a search while signed in (POST /api/v1/saved-searches) and OpenVibe.Network sends you one notification when new matches appear.'],
+    ['Can my app use it?', 'Yes. GET /api/v1/search answers JSON with no account for public documents, and openvibe-sdk/search wraps it, with suggestions and filters by site, type and facet.'],
+    ['Why is a result missing?', 'The index holds what the sites have sent so far. A site adds its documents as it publishes them, so some older pages are not in it yet.'],
+];
 // The front page's kit sections sit in this page's 760 px column, which already has its gutter.
 const FRONT_CSS = `<style>
 main .sc-hero, main .sc-sec { padding-left: 0; padding-right: 0; }
@@ -217,18 +255,73 @@ main .sc-hero { padding-top: 16px; }
 main .sc-hero h1 { font-size: clamp(30px, 6vw, 44px); }
 main .sc-hero + form { margin-top: 20px; }
 main .sc-sec { margin-top: 40px; }
+main.front { max-width: 1080px; }
+main.front > form { max-width: 760px; }
+.sc-eyebrow { color: color-mix(in srgb, var(--accent-light, #60a5fa) 45%, var(--text-primary)); }
+.fs-try { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
+.fs-try li { padding: 0; border: 0; }
+.fs-try a { display: inline-block; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); text-decoration: none; }
+.fs-try a:hover, .fs-try a:focus-visible { border-color: var(--accent); }
+.fs-stats { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); }
+.fs-stats li { display: grid; gap: 2px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-secondary); overflow-wrap: normal; }
+.fs-stats b { font-size: 28px; line-height: 1.1; letter-spacing: -.02em; }
+.fs-stats span { font-size: .85rem; color: var(--muted); }
+.fs-shelves { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+.fs-shelf { min-width: 0; padding: 14px 16px 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-secondary); }
+.fs-shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.fs-shelf-head h3 { margin: 0 0 6px; font-size: 1rem; }
+.fs-shelf-head a { font-size: .85rem; font-weight: 600; color: color-mix(in srgb, var(--accent) 65%, var(--fg)); }
+.fs-shelf ul { list-style: none; margin: 0; padding: 0; }
+.fs-shelf li { padding: 8px 0; border-top: 1px solid var(--line); }
+.fs-shelf li a { color: var(--fg); text-decoration: none; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fs-shelf li a:hover, .fs-shelf li a:focus-visible { text-decoration: underline; }
+.fs-shelf li span { display: block; font-size: .8rem; color: var(--muted); }
+.fs-faq { display: grid; gap: 12px 28px; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); }
+.fs-qa { padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.fs-qa h3 { margin: 0 0 6px; font-size: 1rem; }
+.fs-qa p { margin: 0; color: var(--muted); line-height: 1.6; }
+main.front .sc-code { grid-template-columns: minmax(0, 1fr); }
+main.front .sc-steps { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 520px) { main.front .sc-code pre { white-space: pre-wrap; overflow-wrap: anywhere; } .fs-shelf li:nth-child(n+4) { display: none; } }
 </style>`;
-function frontShowcase(owners = DEFAULT_EVENT_OWNERS) {
-    const items = owners.filter((o) => SOURCES[o]).map((o) => ({ icon: `ov:${ICON_OF[o] || o}`, title: SOURCES[o][0], text: SOURCES[o][1], href: `/?owner=${encodeURIComponent(o)}` }));
-    return showcase.features({ id: 'sources', title: 'Browse by source', lede: 'Each service sends what it publishes as it publishes it; open one to see its public documents.', items });
+function frontShowcase(owners = DEFAULT_EVENT_OWNERS, data = null) {
+    // With the index's numbers: the sources that hold public documents, most first, each with what it holds. Without
+    // them (the first read is late, or failed): every source the index accepts, with its line, as before.
+    const items = data && data.coverage.length
+        ? sourcesOf(data).filter((o) => SOURCES[o.owner]).map((o) => ({ icon: `ov:${ICON_OF[o.owner] || o.owner}`, title: SOURCES[o.owner][0], text: `${o.kinds.slice(0, 3).map((k) => kindWords(o.owner, k.type, k.n)).join(' · ')}. ${SOURCES[o.owner][1]}`, href: `/?owner=${encodeURIComponent(o.owner)}` }))
+        : owners.filter((o) => SOURCES[o]).map((o) => ({ icon: `ov:${ICON_OF[o] || o}`, title: SOURCES[o][0], text: SOURCES[o][1], href: `/?owner=${encodeURIComponent(o)}` }));
+    return showcase.features({ id: 'sources', title: 'Browse by source', lede: 'Each site sends what it publishes as it publishes it; open one to see its public documents.', items });
+}
+
+/** The front page's data sections: the numbers, the shelves of newest documents, the API and the questions. */
+function frontSections(data) {
+    const stats = data ? [[data.total, 'public documents'], [data.sources, 'sites sending'], [data.kinds, 'kinds of document'], [data.week, 'added or updated this week']].filter(([n]) => n > 0) : [];
+    const statRow = stats.length ? `<section class="sc-sec fs-stats-sec" aria-label="The index in numbers"><ul class="fs-stats">${stats.map(([n, label]) => `<li><b>${esc(fmt(n))}</b><span>${esc(label)}</span></li>`).join('')}</ul></section>` : '';
+    const shelves = data && data.shelves.length ? `<section class="sc-sec" aria-labelledby="h-new"><h2 id="h-new">New on the network</h2>
+<p class="sc-lede">The newest public documents of each kind, as they reached the index.</p>
+<div class="fs-shelves">${data.shelves.map((sh) => `<section class="fs-shelf" aria-labelledby="h-${esc(sh.owner)}-${esc(sh.type)}"><div class="fs-shelf-head"><h3 id="h-${esc(sh.owner)}-${esc(sh.type)}">${esc(sh.title)}</h3><a href="/?owner=${encodeURIComponent(sh.owner)}&amp;type=${encodeURIComponent(sh.type)}">More<span class="sr-only"> ${esc(sh.title.toLowerCase())}</span></a></div>
+<ul>${sh.items.map((it) => { const href = safeHref(it.url); const d = dateOf(it.date); return `<li>${href ? `<a href="${esc(href)}">${esc(it.title || 'Untitled')}</a>` : esc(it.title || 'Untitled')}${d ? `<span>${esc((SOURCES[sh.owner] || [sh.owner])[0])} · ${d}</span>` : `<span>${esc((SOURCES[sh.owner] || [sh.owner])[0])}</span>`}</li>`; }).join('')}</ul></section>`).join('')}</div></section>` : '';
+    const api = showcase.code({
+        id: 'api',
+        title: 'Search from your own code',
+        lede: 'The same index as JSON. Signed out you get public documents; with a person\'s token, also what that person may see.',
+        samples: [
+            { label: 'Search (curl, no token)', lang: 'sh', code: 'curl "https://search.openvibe.network/api/v1/search?q=raspberry+pi&limit=5"\n\n# One site and kind, newest first\ncurl "https://search.openvibe.network/api/v1/search?owner=work&type=job"' },
+            { label: 'JavaScript (openvibe-sdk)', lang: 'js', code: "import { createClient } from 'openvibe-sdk/core';\nimport { createSearchClient } from 'openvibe-sdk/search';\n\nconst search = createSearchClient(createClient());\nconst { results } = await search.query('raspberry pi', { limit: 5 });\nconst { suggestions } = await search.suggest('rasp');" },
+        ],
+    });
+    const faq = `<section class="sc-sec" id="faq" aria-labelledby="h-faq"><h2 id="h-faq">Questions</h2>
+<div class="fs-faq">${FAQ.map(([q, a]) => `<div class="fs-qa"><h3>${esc(q)}</h3><p>${esc(a)}</p></div>`).join('')}</div></section>`;
+    return { statRow, shelves, api, faq };
 }
 
 // ownHeading: the body brings its own <h1> (the update log), so the search page's heading and lede stay out.
-function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false }) {
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false, after = '', description = SITE_DESCRIPTION }) {
     const url = noindex ? undefined : canonical;
     return shell.page({
         ...FRAME,
-        title, description: SITE_DESCRIPTION, canonical: url, jsonLd,
+        title, description, canonical: url, jsonLd,
         robots: noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1',
         // The AI summary (and its WebPage JSON-LD) only where the page may be indexed, like the rest of the JSON-LD.
         ...(noindex ? {} : { summary: SITE_DESCRIPTION, url }),
@@ -269,18 +362,20 @@ mark { background: var(--mark); color: inherit; }
 </style>`,
         ].join('\n'),
         body: `<div id="navbar-mount"></div>
-<main id="main">
+<main id="main"${front ? ' class="front"' : ''}>
 ${front ? showcase.hero({
         eyebrow: 'OpenVibe.Search',
         title: 'Search the', accent: 'OpenVibe network',
-        lede: "Wiki pages, posts, stories, pastes, tools and more from the network's services, in one index. Alpha: it holds only what they have sent so far.",
+        lede: 'Jobs, streams, clips, blog posts, hosting plans, coupons, places, tools and help from every OpenVibe site, in one index. Alpha: it holds what the sites have sent so far.',
     }) : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
 ${owner ? `<input type="hidden" name="owner" value="${esc(owner)}">` : ''}${type ? `<input type="hidden" name="type" value="${esc(type)}">` : ''}<button type="submit">Search</button>
 </form>
+${front ? `<ul class="fs-try" aria-label="Try a search"><li>Try:</li>${EXAMPLES.map((e) => `<li><a href="/?q=${encodeURIComponent(e).replace(/%20/g, '+')}">${esc(e)}</a></li>`).join('')}</ul>` : ''}
 ${body}
+${after}
 <section class="page-note">
 <p>Private, draft and deleted documents are never shown. A document that is removed or made private leaves these results at once.
 JSON API: <a href="/api/v1/search?q=${encodeURIComponent(q || '')}">/api/v1/search</a>.
@@ -305,7 +400,7 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
 /** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates.
  *  newestPublic() reads the newest content time among the public indexable documents (the sitemap's real
  *  lastmod); releasedAt is the deployed release's date (/updates' lastmod). */
-function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS }) {
+function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS, frontData = null }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
 
@@ -364,7 +459,11 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             viewer = null; // a browser page never 401s: an unverifiable credential searches as anonymous
         }
         // The plain front page opens with what Search is (openvibe-shared/showcase) and its sources to browse.
-        let body = frontShowcase(owners) + '<p class="note">Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>' + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
+        // With the index's numbers and shelves (server/web/front-data.js), read only for the plain front page.
+        const data = !searching && frontData ? await frontData.read() : null;
+        const front = frontSections(data);
+        let body = front.statRow + front.shelves + frontShowcase(owners, data) + '<p class="note">Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>';
+        const after = front.api + front.faq + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
         let status = 200;
         if (searching) {
             try {
@@ -387,8 +486,9 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             }
         }
         // JSON-LD only where the page may be indexed: the plain front page, never a result page.
-        const jsonLd = searching || status !== 200 ? null : homeJsonLd(origin);
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: !searching && status === 200 }));
+        const isFront = !searching && status === 200;
+        const jsonLd = isFront ? homeJsonLd(origin, data) : null;
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '' }));
     });
 
     return router;

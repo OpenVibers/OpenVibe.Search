@@ -8,6 +8,7 @@ const { createRelease } = require('openvibe-shared/release');
 const { createSearchReadiness, registerSearchGauges } = require('./observability');
 const { documentsRouter } = require('./api/documents');
 const { queryRouter, createSearcher } = require('./api/query');
+const { createFrontData } = require('./web/front-data');
 const { savedRouter } = require('./api/saved');
 const { pageRouter } = require('./web/page');
 const { webhookRouter } = require('./api/webhook');
@@ -74,7 +75,9 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
-    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners }));
+    // The front page's numbers and shelves (server/web/front-data.js): read as an anonymous visitor, kept five minutes.
+    const frontData = createFrontData({ store, searcher, log });
+    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData }));
 
     app.use((req, res) => http.sendProblem(res, 404, 'search.not_found', { detail: `no route ${req.method} ${req.path}`, ctx: req.ov }));
 
