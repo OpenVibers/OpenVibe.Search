@@ -15,10 +15,10 @@ const { ANONYMOUS } = require('../auth');
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 // The shelves, in the order the page shows them: a kind of document people browse, its heading and how many to show.
 // Community pastes are left off on purpose: their titles are written by an AI from a picture, and this page is not the
-// place to repeat them (they stay searchable).
+// place to repeat them (they stay searchable). Clips are left off too: their index order brings back months-old clips,
+// which a shelf called "New on the network" must not show.
 const SHELVES = [
     ['live', 'vod', 'Recent streams'],
-    ['live', 'clip', 'Clips'],
     ['blog', 'post', 'From the blogs'],
     ['work', 'job', 'New jobs'],
     ['host', 'plan', 'Hosting plans'],
