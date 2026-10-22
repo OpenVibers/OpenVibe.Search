@@ -39,6 +39,8 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
             SUM(CASE WHEN exposure = 2 THEN 1 ELSE 0 END) AS public_unlisted,
             SUM(CASE WHEN exposure = 1 THEN 1 ELSE 0 END) AS restricted FROM documents`),
         newestPublic: db.prepare(`SELECT MAX(NULLIF(sort_at, '')) AS lastmod FROM documents WHERE deleted = 0 AND exposure = 3`),
+        coverage: db.prepare(`SELECT owner, type, COUNT(*) AS n FROM documents WHERE deleted = 0 AND exposure = 3 GROUP BY owner, type ORDER BY n DESC, owner, type`),
+        indexedSince: db.prepare('SELECT COUNT(*) AS n FROM documents WHERE deleted = 0 AND exposure = 3 AND indexed_at > ?'),
     };
 
     function rowValues(doc, hash, { via, eventId }) {
@@ -210,7 +212,18 @@ function createStore({ db, engine, outbox, purges = null, now = () => Date.now()
         return row && row.lastmod ? String(row.lastmod) : null;
     }
 
-    return { apply, remove, get, byRid, ownerPage, counts, newestPublic, EXPOSURE_NAME };
+    /** The public, listed documents by owner and type, most first: what the front page says the index holds. */
+    async function publicCoverage() {
+        return (await st.coverage.all()).map((r) => ({ owner: String(r.owner), type: String(r.type), n: Number(r.n) }));
+    }
+
+    /** How many public, listed documents were indexed (added or revised) after `sinceMs`. */
+    async function publicIndexedSince(sinceMs) {
+        const row = await st.indexedSince.get(sinceMs);
+        return row ? Number(row.n) : 0;
+    }
+
+    return { apply, remove, get, byRid, ownerPage, counts, newestPublic, publicCoverage, publicIndexedSince, EXPOSURE_NAME };
 }
 
 module.exports = { createStore, EXPOSURE_NAME };
