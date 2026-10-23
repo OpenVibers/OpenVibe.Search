@@ -101,7 +101,7 @@ function homeJsonLd(origin, data = null) {
         seo.jsonLd.website({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, searchUrl: `${origin}/?q={q}` }),
         seo.jsonLd.softwareApp({ name: SITE_NAME, url: `${origin}/`, description: SITE_DESCRIPTION, category: 'SearchApplication' }),
         // What the index holds, as a list of the filtered searches the page links (only when the page shows them).
-        data && data.coverage.length ? seo.jsonLd.itemList('What OpenVibe.Search holds', sourcesOf(data).map((r) => ({ name: `${(SOURCES[r.owner] || [r.owner])[0]}: ${r.n} documents`, url: `${origin}/?owner=${encodeURIComponent(r.owner)}` })), { url: `${origin}/` }) : null,
+        data && data.coverage.length ? seo.jsonLd.itemList('What OpenVibe.Search holds', sourcesOf(data).map((r) => ({ name: (SOURCES[r.owner] || [r.owner])[0], url: `${origin}/?owner=${encodeURIComponent(r.owner)}` })), { url: `${origin}/` }) : null,
         seo.jsonLd.faq(FAQ.map(([q, a]) => ({ q, a }))),
     ].filter(Boolean);
 }
