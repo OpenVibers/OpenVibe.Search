@@ -42,6 +42,7 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.match(csp, /script-src 'self' https:\/\/openvibe\.network https:\/\/static\.cloudflareinsights\.com 'sha256-[^']+'/);
     // And the Events realtime stream, for release notifications (release-watch, openvibe-shared 1.17).
     assert.match(csp, /connect-src 'self' https:\/\/openvibe\.network https:\/\/cloudflareinsights\.com https:\/\/openvibe\.events;/);
+    assert.match(csp, /manifest-src 'self';/, 'its own web manifest loads (default-src none refused it)');
     assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'no inline script allowed by default');
     const allowed = [...(/script-src ([^;]*)/.exec(csp)[1]).matchAll(/'sha256-([^']+)'/g)].map((m) => m[1]);
     const scripts = [...r.text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
