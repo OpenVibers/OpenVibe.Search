@@ -50,11 +50,13 @@ const FRAME = {
 };
 const FOOTER = { service: 'search', variant: 'compact', mount: '#ov-footer', brandName: SITE_NAME, updates: '/updates' };
 const FOOTER_INIT = `window.addEventListener('DOMContentLoaded', function () { try { OpenVibeFooter.init(${JSON.stringify(FOOTER).replace(/</g, '\\u003c')}); } catch (e) { /* the Frame is optional */ } });`;
+// manifest-src 'self': the page links its own web manifest (/shared/manifest/search.webmanifest), which default-src 'none'
+// refused in every visitor's console (2026-10-24).
 // The two inline scripts are constant (the shell's boot depends only on FRAME), so script-src allows exactly
 // them by hash and still has no 'unsafe-inline'.
 const sha256 = (js) => `'sha256-${require('crypto').createHash('sha256').update(js, 'utf8').digest('base64')}'`;
 const INLINE = [...shell.scripts(FRAME).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).concat(FOOTER_INIT);
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'self' 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')}; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'self' 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; manifest-src 'self'; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
 const ICON_LINKS = require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
