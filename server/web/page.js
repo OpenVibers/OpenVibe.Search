@@ -366,10 +366,10 @@ mark { background: var(--mark); color: inherit; }
         body: `<div id="navbar-mount"></div>
 <main id="main"${front ? ' class="front"' : ''}>
 ${front ? showcase.hero({
-        eyebrow: 'OpenVibe.Search',
+        eyebrow: 'OpenVibe.Search · part of OpenVibe Services',
         title: 'Search the', accent: 'OpenVibe network',
         lede: 'Jobs, streams, clips, blog posts, hosting plans, coupons, places, tools and help from every OpenVibe site, in one index. Alpha: it holds what the sites have sent so far.',
-    }) : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
+    }) + '<section class="sc-sec sc-part-of"><p class="sc-note">Part of <a href="https://openvibe.services/">OpenVibe Services</a>: the building blocks every OpenVibe product runs on, with one console, one account and one SDK.</p></section>' : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
