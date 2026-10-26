@@ -389,7 +389,7 @@ repository's own vhost serves it.
 Part of the [OpenVibe network](https://openvibe.network). Built in the open by [OpenVibers](https://github.com/OpenVibers).
 
 <!-- versions:start -->
-- openvibe-contracts: v0.213.0
+- openvibe-contracts: v0.214.0
 - openvibe-sdk: v0.64.0
 - openvibe-shared: v4.12.0
 <!-- versions:end -->
