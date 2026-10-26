@@ -84,7 +84,7 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     // (an ItemList of the sources the page links) and the questions it shows (FAQPage).
     const ld = [...r.text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
     // (and the WebPage of the AI summary).
-    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'ItemList', 'FAQPage', 'WebPage']);
+    assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'ItemList', 'FAQPage', 'Organization', 'WebPage']);   // Organization: Shared 4.13 headTags
     assert.strictEqual(ld[0].potentialAction.target.urlTemplate.endsWith('/?q={search_term_string}'), true);
     assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
     assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
