@@ -75,6 +75,11 @@ t('anonymous sees public listed documents only — hits, snippets, facets, sugge
     assertNoLeak(s, ['pub']);
     const s2 = await get('/api/v1/suggest?q=pub');
     assert.deepStrictEqual(s2.body.suggestions.map(x => x.id), ['pub']);
+    // Any site's page may read search and suggest (navbar search, Shared 4.21): *, and what it reads is anonymous's.
+    assert.deepStrictEqual([s.headers.get('access-control-allow-origin'), r.headers.get('access-control-allow-origin')], ['*', '*']);
+    assert.strictEqual(s.headers.get('access-control-allow-credentials'), null, 'never with credentials');
+    const doc = await get('/api/v1/documents/blog/post/pub');
+    assert.strictEqual(doc.headers.get('access-control-allow-origin'), null, 'only search and suggest');
     const browse = await q('facets=category');
     assert.deepStrictEqual(idsOf(browse), ['pub']);
     assertNoLeak(browse, ['pub']);
