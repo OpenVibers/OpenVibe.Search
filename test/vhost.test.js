@@ -39,6 +39,10 @@ t('the query API is GET-only and never cached by nginx; unknown paths get a JSON
     const q = block('location ~ ^/api/v1/(search|suggest)$');
     assert.match(q, /limit_except GET \{ deny all; \}/);
     assert.match(q, /proxy_no_cache 1;/);
+    const f = block('location ~ ^/api/v1/query(/providers)?$');
+    assert.match(f, /limit_except GET POST \{ deny all; \}/, 'the Search Fabric: GET or POST');
+    assert.match(f, /limit_req zone=ovsearch_query/);
+    assert.match(f, /proxy_no_cache 1;/, 'a personalised answer is never cached by nginx');
     const body = /return 404 '(\{.*\})';/.exec(conf)[1];
     assert.strictEqual(JSON.parse(body).code, 'search.not_found');
 });
