@@ -23,8 +23,11 @@ const { createSearcher } = require('./api/query');
 const { createNetworkPush } = require('./network-push');
 const { createSavedNotifier } = require('./saved-notifier');
 const { createApp } = require('./app');
+const { createPgVectorStore } = require('./fabric/vector-store');
+const { createEmbeddingClient } = require('./fabric/embed');
+const { createEmbedder } = require('./fabric/embedder');
 
-async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, networkPush = null, log = console, listen = true } = {}) {
+async function start({ config, db: givenDb = null, now = () => Date.now(), fetchImpl = globalThis.fetch, networkPush = null, log = console, listen = true, vectorStore: givenVectorStore = null, embeddingClient: givenEmbeddings = null, embedder: givenEmbedder = null } = {}) {
     config = config || load();
     // PostgreSQL (ADR-035): opened and migrated here unless the caller (a test) hands in a migrated handle.
     const db = givenDb || await openDb(config, { log });
@@ -48,13 +51,18 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const jwksUrl = `${config.networkInternalUrl}/api/.well-known/jwks`;
     const jwks = jwksClient(jwksUrl, { log, fetch: fetchImpl });
     const auth = createAuth({ config, jwks, log });
-    const searcher = createSearcher({ config, store, engine, now });
+    // Semantic ranking (SF-2): the pgvector store (inert on PGlite: available() is false), the AI embedding
+    // client, and the job that keeps one embedding per public document. Tests inject a fake vector store.
+    const vectorStore = givenVectorStore || createPgVectorStore({ db, model: config.embed.model, dim: config.embed.dim });
+    const embeddingClient = givenEmbeddings || createEmbeddingClient({ config, fetchImpl, now, log });
+    const embedder = givenEmbedder || createEmbedder({ db, vectors: vectorStore, embeddings: embeddingClient, config, now, log });
+    const searcher = createSearcher({ config, store, engine, vectorStore, embeddings: embeddingClient, now });
     // Saved-search notifications through Network: off unless SEARCH_SAVED_NOTIFY=1 with the `search` client's secret.
     const notifier = createSavedNotifier({
         config, saved, searcher, now, log,
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
-    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now });
+    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
@@ -63,6 +71,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     outbox.start();
     purger.start();
     notifier.start();
+    embedder.start();
     const pruneTimer = setInterval(async () => { try { await outbox.outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
     // Expired Search Fabric answers are cheap to keep but pointless to serve; drop them hourly.
@@ -86,6 +95,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         await outbox.stop();
         await purger.stop();
         await notifier.stop();
+        await embedder.stop();
         if (server) {
             server.closeAllConnections?.();
             await new Promise(resolve => server.close(() => resolve()));
@@ -95,7 +105,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
 
     return {
         config, db, engine, store, outbox, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close,
-        queryCache, fabric: app.locals.fabric,
+        queryCache, vectorStore, embeddingClient, embedder, fabric: app.locals.fabric,
     };
 }
 

@@ -26,6 +26,37 @@ const MAX_CITATIONS = 20;
 const FRESHNESS_MS = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000, year: 365 * 86400000 };
 
 /**
+ * Does the pinned search.fabric-result@1 already allow the semantic-ranking additions? The fields are
+ * optional and additive (a contract diff is in the task's answer), but until Contracts ships them the
+ * answer must stay valid: with the current schema they are left out, not sent and rejected.
+ */
+const FABRIC_RANK_FIELDS = (() => {
+    try {
+        const schema = contracts.schema('search.fabric-result@1');
+        const explain = schema && schema.properties && schema.properties.route
+            && schema.properties.route.properties && schema.properties.route.properties.explain;
+        const item = explain && explain.items && explain.items.properties;
+        const result = schema && schema.properties && schema.properties.results
+            && schema.properties.results.items && schema.properties.results.items.properties;
+        return {
+            explainRanking: Boolean(item && item.ranking),
+            explainReason: Boolean(item && item.reason),
+            resultRanks: Boolean(result && result.ranks),
+        };
+    } catch {
+        return { explainRanking: false, explainReason: false, resultRanks: false };
+    }
+})();
+
+function withRanking(row, page) {
+    const explain = page && page.explain;
+    if (!explain) return row;
+    if (FABRIC_RANK_FIELDS.explainRanking && explain.ranking) row.ranking = explain.ranking;
+    if (FABRIC_RANK_FIELDS.explainReason && explain.reason) row.reason = explain.reason;
+    return row;
+}
+
+/**
  * The vertical scopes and the document kinds Search actually indexes for them. A scope with no entry
  * (images and people today) has nothing to narrow yet and says so instead of guessing. Several
  * matchers are allowed where one product has two kinds (a recorded stream and an uploaded video).
@@ -79,7 +110,7 @@ function documentResult(doc, scope) {
     const snippet = doc.snippet_html ? plainText(doc.snippet_html, 600)
         : doc.summary ? plainText(doc.summary, 600) : null;
     const site = hostOf(url);
-    return {
+    const out = {
         scope,
         kind: 'document',
         title: clip(doc.title || url, 300),
@@ -95,6 +126,8 @@ function documentResult(doc, scope) {
         id: doc.id ? clip(doc.id, 200) : null,
         score: null,
     };
+    if (FABRIC_RANK_FIELDS.resultRanks && doc.ranks) out.ranks = doc.ranks;
+    return out;
 }
 
 /** An open-index document as a web page: it is in Search's index, but it cites like any web source. */
@@ -174,7 +207,7 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             return {
                 results,
                 next_cursor: page.next_cursor || null,
-                explain: [{ scope: 'network', step: 'index', ok: true, count: results.length, ms: msSince(started, now) }],
+                explain: [withRanking({ scope: 'network', step: 'index', ok: true, count: results.length, ms: msSince(started, now) }, page)],
             };
         })();
     }
@@ -200,7 +233,7 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             return {
                 results,
                 next_cursor: page.next_cursor || null,
-                explain: [{ scope: 'mine', step: 'index', ok: true, count: results.length, ms: msSince(started, now) }],
+                explain: [withRanking({ scope: 'mine', step: 'index', ok: true, count: results.length, ms: msSince(started, now) }, page)],
             };
         })();
     }
@@ -233,7 +266,7 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             }
             return {
                 results, next_cursor: null,
-                explain: [{ scope, step: 'index', ok: true, count: results.length, ms: msSince(started, now) }],
+                explain: [withRanking({ scope, step: 'index', ok: true, count: results.length, ms: msSince(started, now) }, pages[0])],
             };
         })();
     }
