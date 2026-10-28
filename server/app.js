@@ -8,6 +8,10 @@ const { createRelease } = require('openvibe-shared/release');
 const { createSearchReadiness, registerSearchGauges } = require('./observability');
 const { documentsRouter } = require('./api/documents');
 const { queryRouter, createSearcher } = require('./api/query');
+const { fabricRouter } = require('./api/fabric');
+const { createQueryCache } = require('./fabric/cache');
+const { createWebProviders } = require('./fabric/web');
+const { createFabric } = require('./fabric');
 const { createFrontData } = require('./web/front-data');
 const { savedRouter } = require('./api/saved');
 const { pageRouter } = require('./web/page');
@@ -16,7 +20,7 @@ const { createLimits } = require('./actor-limits');
 const { createIndexNow } = require('openvibe-shared/indexnow');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, fetchImpl = globalThis.fetch, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -70,8 +74,17 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // One per-actor limiter for the API routes below (server/actor-limits.js); the Events webhook,
     // health, ready, release.json and metrics above are never limited.
     const limits = createLimits({ config, now: now || (() => Date.now()), registry: metrics.registry, log });
+    // The Search Fabric: one cache and one web-provider ladder for the process. The hourly prune timer
+    // lives in server/index.js, which clears it on close.
+    const clock = now || (() => Date.now());
+    const queryCache = createQueryCache({ db, now: clock });
+    const web = createWebProviders({ config, fetchImpl, now: clock, log });
+    const fabric = createFabric({ config, searcher, cache: queryCache, web, db, now: clock, log });
+    app.locals.queryCache = queryCache;
+    app.locals.fabric = fabric;
     app.use(documentsRouter({ store, auth, db, outbox, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
+    app.use(fabricRouter({ fabric, auth, limits }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).

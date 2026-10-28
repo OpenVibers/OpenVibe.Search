@@ -10,8 +10,9 @@
  * is not counted: it speaks for all of them and limits them itself, so one budget would refuse its
  * whole site. Past a limit the route answers 429 problem+json `rate_limited` with Retry-After before
  * it does any work; the refusal is logged once and counted in search_rate_limited_total{limit,window}.
- * Read routes get SEARCH_LIMITS_MINUTE / SEARCH_LIMITS_HOUR (120 and 3000). Counters live in this
- * process: a restart forgets them.
+ * Read routes get SEARCH_LIMITS_MINUTE / SEARCH_LIMITS_HOUR (120 and 3000). The Search Fabric
+ * query (POST/GET /api/v1/query) allows 30 a minute and 600 an hour because a step may reach a paid
+ * provider; its providers list takes the defaults. Counters live in this process: a restart forgets them.
  *
  * Never limited: /api/health, /api/ready, /release.json, /metrics, and the signed Events deliveries
  * (POST /internal/events: Events pushes at its own pace, and a 429 would only make it retry and fall

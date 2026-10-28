@@ -17,6 +17,9 @@ const num = (v, d) => {
     return Number.isFinite(n) ? n : d;
 };
 
+// The AI service's loopback address, from Contracts, so a development boot reaches it without an env var.
+const AI_SERVICE = require('openvibe-contracts/manifests/services/ai.json');
+
 const ZONE_ID_RE = /^[0-9a-f]{32}$/;
 const HOST_RE = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -94,6 +97,16 @@ function load(env = process.env) {
             maxFacetFilters: 8,
         },
         maxBodyBytes: int(env.SEARCH_MAX_BODY_BYTES, 256 * 1024),
+
+        // The Search Fabric's web ladder (server/fabric): OpenVibe.AI's research endpoint for the web
+        // providers, its own open index first. SEARCH_WEB=off leaves the ladder's providers off (the
+        // open index and cached answers still work); SEARCH_WEB_DAILY bounds paid DeepSeek calls per day.
+        fabric: {
+            aiUrl: strip(env.OV_AI_INTERNAL_URL || AI_SERVICE.internalOrigin || ''),
+            web: env.SEARCH_WEB !== 'off',
+            dailyCap: int(env.SEARCH_WEB_DAILY, 500),
+            openIndexOwners: list(env.SEARCH_OPEN_INDEX_OWNERS, ['sources']),
+        },
 
         // Freshness weighting of full-text relevance (README "Ranking"):
         //   score = bm25 × (1 + weight × 2^(−age_days / halfLifeDays)); weight 0 turns it off.
