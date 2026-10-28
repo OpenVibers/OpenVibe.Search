@@ -54,7 +54,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         config, saved, searcher, now, log,
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
-    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, log, now });
+    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
@@ -65,6 +65,10 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     notifier.start();
     const pruneTimer = setInterval(async () => { try { await outbox.outbox.prune(); } catch (err) { log.error(`[outbox] prune: ${err.message}`); } }, 6 * 3600 * 1000);
     pruneTimer.unref?.();
+    // Expired Search Fabric answers are cheap to keep but pointless to serve; drop them hourly.
+    const queryCache = app.locals.queryCache;
+    const cachePruneTimer = setInterval(async () => { try { await queryCache.prune(); } catch (err) { log.error(`[fabric] cache prune: ${err.message}`); } }, 3600 * 1000);
+    cachePruneTimer.unref?.();
 
     let server = null;
     if (listen) {
@@ -77,6 +81,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
 
     async function close() {
         clearInterval(pruneTimer);
+        clearInterval(cachePruneTimer);
         jwks.stop();
         await outbox.stop();
         await purger.stop();
@@ -88,7 +93,10 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         if (!givenDb) await db.close();
     }
 
-    return { config, db, engine, store, outbox, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close };
+    return {
+        config, db, engine, store, outbox, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close,
+        queryCache, fabric: app.locals.fabric,
+    };
 }
 
 if (require.main === module) {

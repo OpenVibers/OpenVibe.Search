@@ -155,6 +155,67 @@ Search so it reads `OV_OAUTH_CLIENT_ID` and `OV_OAUTH_CLIENT_SECRET`), and
 saved-search notifications are switched on here with `SEARCH_SAVED_NOTIFY=1`; until someone signs
 in that way, saved searches are used through Bearer tokens or a product acting for its visitor.
 
+## Search Fabric
+
+One search over several scopes, routed the cheapest way that answers (`search.fabric.query`):
+
+| Scope | What it reads |
+|---|---|
+| `network` | Search's own index, with the same visibility rules as `GET /api/v1/search` |
+| `mine` | the same search kept to the caller's non-public documents (needs a signed-in person) |
+| `web` | OpenVibe's open index, then the paid/free web providers in a ladder |
+| `news`, `video`, `products`, `places`, `code` | facets of the same index, narrowed to the owner and type Search holds |
+| `images`, `people` | nothing yet: `skipped: "not indexed yet"` in `route.explain` |
+
+The web ladder is `open_index` first (free, the configured `SEARCH_OPEN_INDEX_OWNERS`), then
+`deepseek` (paid), then `wikipedia` (free). Every step says what happened in `route.explain`: `ok`,
+`count`, `ms`, `cached`, `cost_usd`, or `skipped` with the reason. Depth `quick` reads the index and
+the cache only; `standard` stops climbing once it has `min(limit, 3)` results; `deep` runs every
+step and merges them, de-duplicating by URL.
+
+Only a signed-in person, or a first-party service, may trigger a paid provider.
+Anonymous callers get the open index and cached answers; the cache key is the normalized query,
+scope, step, freshness and site, so the same question typed two ways is one entry. DeepSeek calls are
+capped per day (`SEARCH_WEB_DAILY`, default 500); past the cap the step is skipped with
+`daily cap reached`. Cache TTLs: `day` freshness 1 h, `week` 6 h, otherwise 24 h.
+
+```http
+POST /api/v1/query        { "q": "solar eclipse", "scopes": ["network", "web"], "depth": "standard" }
+GET  /api/v1/query?q=solar+eclipse&scopes=network,web
+GET  /api/v1/query/providers
+```
+
+The GET query string takes `q`, `scopes` (comma-separated), `freshness`, `depth`, `limit`, `cursor`,
+`owner`, `type`, `lang` and `site`. GET and `/providers` answer `Access-Control-Allow-Origin: *`
+(anonymous rules apply); POST does not. Results are grouped in the requested scope order, at most
+`limit` per scope and 100 in all; `citations` number the web results and `next_cursor` pages the
+network or mine scope when it was the only one asked. The answer never contains the query text.
+
+```json
+{
+  "results": [
+    { "scope": "network", "kind": "document", "title": "Eclipse timings", "url": "https://openvibe.news/s/1", "site": "openvibe.news", "owner": "news", "type": "story", "id": "story_1" },
+    { "scope": "web", "kind": "page", "title": "Solar eclipse", "url": "https://en.wikipedia.org/wiki/Solar_eclipse", "site": "en.wikipedia.org", "provider": "wikipedia", "retrieved_at": "2026-10-28T12:00:00.000Z" }
+  ],
+  "groups": { "network": 1, "web": 1 },
+  "answer": null,
+  "citations": [{ "n": 1, "url": "https://en.wikipedia.org/wiki/Solar_eclipse", "title": "Solar eclipse", "provider": "wikipedia", "retrieved_at": "2026-10-28T12:00:00.000Z" }],
+  "route": {
+    "explain": [
+      { "scope": "network", "step": "index", "ok": true, "count": 1, "ms": 4 },
+      { "scope": "web", "step": "open_index", "ok": true, "count": 0, "ms": 3 },
+      { "scope": "web", "step": "deepseek", "ok": false, "count": 0, "skipped": "paid providers need a signed-in person" },
+      { "scope": "web", "step": "wikipedia", "ok": true, "count": 1, "ms": 190, "cost_usd": 0 }
+    ],
+    "cost_usd": 0
+  },
+  "next_cursor": null
+}
+```
+
+Asking `"answer": true` answers `answer: null` and adds an `answer` explain row: answers are not on
+yet.
+
 ## Indexing
 
 Owners call with an OpenVibe.Network client-credentials token (`audience=openvibe.search`) holding
@@ -269,6 +330,8 @@ signed-out visitors is not counted (it speaks for all of them). Past a limit: `4
 | Route | Per caller |
 |---|---|
 | Queries, direct gets, owner reconciliation reads, saved-search reads and runs | `SEARCH_LIMITS_MINUTE` / `SEARCH_LIMITS_HOUR` (120 a minute, 3000 an hour) |
+| `POST/GET /api/v1/query` (`search.fabric`, a paid-provider ladder) | 30 / 600 |
+| `GET /api/v1/query/providers` | `SEARCH_LIMITS_MINUTE` / `SEARCH_LIMITS_HOUR` |
 | `GET /api/v1/suggest` | 300 / 6000 (a search box as the person types) |
 | `PUT/DELETE /api/v1/documents/…` | 120 / 1200 (a catalog sync is a burst; bulk content comes through Events) |
 | Saved-search create, delete | 30 / 300 |
@@ -293,6 +356,8 @@ Never limited: the signed Events deliveries (`POST /internal/events`), `/api/hea
 - freshness decay, newer-first between equals, relevance over age, stable cursors (`test/freshness.test.js`)
 - saved searches: signed-in only, own only, run-time ACL, Origin check for cookies, limits
   (`test/saved-searches.test.js`)
+- the Search Fabric: network visibility, mine for a person, the web ladder, cache hits, the daily
+  cap, provider offers and GET/POST parity (`test/fabric.test.js`)
 - saved-search notifications: one push per search with new hits, as its owner, the watermark only
   after a push, a failed push retried, never twice, off without the flag and the secret
   (`test/saved-notify.test.js`, `test/network-push.test.js`)
