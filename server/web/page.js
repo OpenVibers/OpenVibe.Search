@@ -133,6 +133,7 @@ function llmsTxt(origin) {
             ] },
             { title: 'Machine-readable', links: [
                 { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
+                { title: 'MCP endpoint', url: `${origin}/mcp`, note: 'Streamable HTTP MCP (JSON-RPC 2.0): agents call openvibe_search and openvibe_search_providers' },
                 { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
                 { title: 'Sitemap', url: `${origin}/sitemap.xml` },
                 { title: 'robots.txt', url: `${origin}/robots.txt` },

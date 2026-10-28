@@ -9,6 +9,7 @@ const { createSearchReadiness, registerSearchGauges } = require('./observability
 const { documentsRouter } = require('./api/documents');
 const { queryRouter, createSearcher } = require('./api/query');
 const { fabricRouter } = require('./api/fabric');
+const { mcpRouter } = require('./api/mcp');
 const { createQueryCache } = require('./fabric/cache');
 const { createWebProviders } = require('./fabric/web');
 const { createFabric } = require('./fabric');
@@ -85,6 +86,8 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     app.use(documentsRouter({ store, auth, db, outbox, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(fabricRouter({ fabric, auth, limits }));
+    // MCP over Streamable HTTP: the same fabric, viewer and search.fabric limit as the query route above.
+    app.use(mcpRouter({ fabric, auth, limits }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).

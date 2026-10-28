@@ -216,6 +216,35 @@ network or mine scope when it was the only one asked. The answer never contains 
 Asking `"answer": true` answers `answer: null` and adds an `answer` explain row: answers are not on
 yet.
 
+## MCP
+
+The same fabric is a [Model Context Protocol](https://modelcontextprotocol.io) server over
+Streamable HTTP at **`https://search.openvibe.network/mcp`** (JSON-RPC 2.0, protocol revision
+2025-06-18). It is stateless: one `POST`, one answer, no session id. `GET` and `DELETE` answer 405.
+
+| Tool | What it does |
+|---|---|
+| `openvibe_search` | one search over `network`, `mine`, `web`, `news`, `video`, `products`, `places` and `code`; results grouped by scope with `route.explain` and cost |
+| `openvibe_search_providers` | the web ladder's providers, with price per call and whether each is available |
+
+Add it to an MCP client:
+
+```json
+{
+  "mcpServers": {
+    "openvibe-search": {
+      "type": "http",
+      "url": "https://search.openvibe.network/mcp"
+    }
+  }
+}
+```
+
+Anonymous callers search the public network and the open web index. A Bearer token (a Network user
+token) adds the caller's own `mine` scope and lets the `web` scope reach DeepSeek; it is also the
+person the fabric's visibility rules apply to. Each `tools/call` shares the fabric's per-actor
+`search.fabric` limit (30 a minute, 600 an hour); `initialize` and `tools/list` are not limited.
+
 ## Indexing
 
 Owners call with an OpenVibe.Network client-credentials token (`audience=openvibe.search`) holding
