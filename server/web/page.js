@@ -41,7 +41,9 @@ const shell = require('openvibe-shared/shell');
 const showcase = require('openvibe-shared/showcase');
 const { DEFAULT_EVENT_OWNERS } = require('../config');
 const frame = require('openvibe-shared/frame');
-const LINKS = [{ label: 'Search', href: '/' }, { label: 'Updates', href: '/updates' }];
+// One place: the search itself. What shipped is the footer's Updates link on every site (Shared 4.22), and the
+// OpenVibe menu by the logo lists every site.
+const LINKS = [{ label: 'Search', href: '/', icon: 'fa-magnifying-glass' }];
 // The shell options every page shares: the navbar it boots and the noscript nav and footer it renders.
 const FRAME = {
     name: SITE_NAME, lang: 'en', navLinks: LINKS,
