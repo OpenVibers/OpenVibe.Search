@@ -9,7 +9,10 @@
  *
  *   GET /api/v1/search?q=&owner=&type=&lang=&facet.<key>=<value>&facets=<k1,k2>&limit=&cursor=
  *   GET /api/v1/suggest?q=&owner=&type=&limit=
- *   GET /api/v1/documents/:owner/:type/:id       one document by exact id (unlisted: any signed-in
+ *   GET /api/v1/documents/:owner/:type/:id
+ *
+ * Search and suggest answer any origin (Access-Control-Allow-Origin *, never with credentials): what another site's
+ * page reads is what anonymous reads.       one document by exact id (unlisted: any signed-in
  *                                                subject; public noindex: anyone)
  *
  * Nothing here ever returns an ACL, a draft, an unpublished or deleted document, a total count, or
@@ -200,6 +203,12 @@ function withViewer(auth, handler, limit = null) {
 function queryRouter({ config, store, engine, auth, limits, searcher = createSearcher({ config, store, engine }) }) {
     const router = express.Router();
     const guarded = (limit, h) => withViewer(auth, h, limit);
+
+    // Any page may ask search and suggest from the browser (the navbar's search on every OpenVibe site, Shared 4.21, and
+    // anyone's own box): Access-Control-Allow-Origin * and nothing more. A browser never sends cookies to a * answer,
+    // and a cross-site Authorization header would need a preflight this router does not grant, so what another site's
+    // page can read is exactly what anonymous gets: public, published, indexable documents.
+    router.get(['/api/v1/search', '/api/v1/suggest'], (req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); next(); });
 
     // Per-actor limits (server/actor-limits.js): queries and document reads take the defaults. Suggest
     // answers a search box as the person types, several requests a second, so it allows 300 a minute.
