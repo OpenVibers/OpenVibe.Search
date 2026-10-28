@@ -47,4 +47,15 @@ t('the query API is GET-only and never cached by nginx; unknown paths get a JSON
     assert.strictEqual(JSON.parse(body).code, 'search.not_found');
 });
 
+t('the MCP endpoint is POST (and preflight OPTIONS) only, small, unbuffered and never cached', () => {
+    const m = block('location = /mcp');
+    assert.match(m, /limit_except POST OPTIONS \{ deny all; \}/, 'Streamable HTTP POST, plus the browser preflight');
+    assert.match(m, /limit_req zone=ovsearch_query burst=20 nodelay;/, 'the query zone, burst 20');
+    assert.match(m, /client_max_body_size 64k;/);
+    assert.match(m, /proxy_pass http:\/\/127\.0\.0\.1:4710;/);
+    assert.match(m, /proxy_buffering off;/);
+    assert.match(m, /proxy_no_cache 1;/);
+    assert.match(m, /proxy_cache_bypass 1;/);
+});
+
 t.run();
