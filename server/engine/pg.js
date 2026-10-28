@@ -30,6 +30,25 @@ const HEADLINE = `StartSel=${MARK_OPEN}, StopSel=${MARK_CLOSE}, MaxWords=16, Min
 const DAY_MS = 24 * 3600 * 1000;
 
 /**
+ * The filter predicate shared by the full-text engine and the vector store (alias d = documents).
+ * Filters never change visibility; the caller adds that. `since` is internal (saved searches).
+ */
+function filterClause(filters, params) {
+    const parts = [];
+    if (filters.owner) { parts.push('d.owner = @f_owner'); params.f_owner = filters.owner; }
+    if (filters.type) { parts.push('d.type = @f_type'); params.f_type = filters.type; }
+    if (filters.language) { parts.push('d.language = @f_lang'); params.f_lang = filters.language; }
+    // Internal only (saved-search notifications): documents indexed (a new revision) after `since`, epoch ms.
+    if (filters.since != null) { parts.push('d.indexed_at > @f_since::bigint'); params.f_since = Number(filters.since); }
+    (filters.facets || []).forEach(([key, values], i) => {
+        params[`f_fk${i}`] = key;
+        params[`f_fv${i}`] = values.map(String);
+        parts.push(`EXISTS (SELECT 1 FROM doc_facets x WHERE x.rid = d.rid AND x.key = @f_fk${i} AND x.value = ANY(@f_fv${i}::text[]))`);
+    });
+    return parts.length ? ` AND ${parts.join(' AND ')}` : '';
+}
+
+/**
  * Freshness multiplier for a document dated `iso` at reference time `nowMs`:
  *
  *   1 + weight × 2^(−age_days / halfLifeDays)
@@ -108,21 +127,6 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
                 OR (a.kind = 'g' AND a.value = ANY(@v_groups::text[]))
                 OR (a.kind = 'e' AND a.value = ANY(@v_ents::text[])))))
         )`;
-    }
-
-    function filterClause(filters, params) {
-        const parts = [];
-        if (filters.owner) { parts.push('d.owner = @f_owner'); params.f_owner = filters.owner; }
-        if (filters.type) { parts.push('d.type = @f_type'); params.f_type = filters.type; }
-        if (filters.language) { parts.push('d.language = @f_lang'); params.f_lang = filters.language; }
-        // Internal only (saved-search notifications): documents indexed (a new revision) after `since`, epoch ms.
-        if (filters.since != null) { parts.push('d.indexed_at > @f_since::bigint'); params.f_since = Number(filters.since); }
-        (filters.facets || []).forEach(([key, values], i) => {
-            params[`f_fk${i}`] = key;
-            params[`f_fv${i}`] = values.map(String);
-            parts.push(`EXISTS (SELECT 1 FROM doc_facets x WHERE x.rid = d.rid AND x.key = @f_fk${i} AND x.value = ANY(@f_fv${i}::text[]))`);
-        });
-        return parts.length ? ` AND ${parts.join(' AND ')}` : '';
     }
 
     /**
@@ -293,4 +297,4 @@ function snippetHtml(snip) {
     return esc.split(MARK_OPEN).join('<mark>').split(MARK_CLOSE).join('</mark>');
 }
 
-module.exports = { createEngine, toMatch, tsquery, snippetHtml, freshnessBoost, fold, words };
+module.exports = { createEngine, toMatch, tsquery, snippetHtml, freshnessBoost, fold, words, filterClause };

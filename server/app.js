@@ -21,7 +21,7 @@ const { createLimits } = require('./actor-limits');
 const { createIndexNow } = require('openvibe-shared/indexnow');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, fetchImpl = globalThis.fetch, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, fetchImpl = globalThis.fetch, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -71,7 +71,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // GET /release.json (ADR-016) and POST /release-metrics (open tabs' update reports into /metrics).
     release.mount(app, { registry: metrics.registry });
 
-    const searcher = givenSearcher || createSearcher({ config, store, engine, now });
+    const searcher = givenSearcher || createSearcher({ config, store, engine, vectorStore, embeddings, now });
     // One per-actor limiter for the API routes below (server/actor-limits.js); the Events webhook,
     // health, ready, release.json and metrics above are never limited.
     const limits = createLimits({ config, now: now || (() => Date.now()), registry: metrics.registry, log });

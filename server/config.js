@@ -98,6 +98,21 @@ function load(env = process.env) {
         },
         maxBodyBytes: int(env.SEARCH_MAX_BODY_BYTES, 256 * 1024),
 
+        // Restore-drill mode (SEARCH_DRILL=1, `ovhost drill search`): background jobs that write or call out
+        // stay off. The drill's empty OV_OAUTH_CLIENT_SECRET is a second switch for anything that needs AI.
+        drill: env.SEARCH_DRILL === '1',
+
+        // Semantic ranking (SF-2): one local `bge-small-en-v1.5` embedding (384 dimensions) per public document,
+        // through OpenVibe.AI's /api/v1/embed. SEARCH_EMBED=0 turns the job off; SEARCH_EMBED_PER_MIN bounds how
+        // many documents one rolling minute may embed; SEARCH_EMBED_INTERVAL_MS is how often a pass starts.
+        embed: {
+            enabled: env.SEARCH_EMBED !== '0',
+            model: String(env.SEARCH_EMBED_MODEL || 'bge-small-en-v1.5').trim() || 'bge-small-en-v1.5',
+            dim: Math.max(1, int(env.SEARCH_EMBED_DIM, 384)),
+            perMinute: Math.max(1, int(env.SEARCH_EMBED_PER_MIN, 120)),
+            intervalMs: Math.max(1000, int(env.SEARCH_EMBED_INTERVAL_MS, 60000)),
+        },
+
         // The Search Fabric's web ladder (server/fabric): OpenVibe.AI's research endpoint for the web
         // providers, its own open index first. SEARCH_WEB=off leaves the ladder's providers off (the
         // open index and cached answers still work); SEARCH_WEB_DAILY bounds paid DeepSeek calls per day.

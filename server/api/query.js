@@ -27,9 +27,12 @@ const { toMatch, snippetHtml } = require('../engine/pg');
 const { EXPOSURE } = require('../document');
 const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
+const { fuseRrf } = require('../fabric/rrf');
+const { createQueryEmbeddingCache } = require('../fabric/embed');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+const HYBRID_CANDIDATES = 100;
 
 class QueryError extends Error {
     constructor(code, detail) { super(detail); this.code = code; }
@@ -74,13 +77,16 @@ function decodeCursor(s, hash) {
     try { c = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8')); } catch { c = null; }
     if (!c || c.h !== hash || !Number.isInteger(c.i)) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
     // n: the first page's reference time for freshness, so later pages rank on the same clock.
+    // f: a hybrid page is an offset into the fused list (the keyword and vector ranks are recomputed for
+    // each page, so the fused order is stable; `i` carries the last rid for the shared cursor shape).
+    if (c.k === 'f' && Number.isInteger(c.o) && c.o >= 0) return { offset: c.o, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
     if (c.k === 'r' && typeof c.r === 'number') return { rank: c.r, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
     if (c.k === 't' && typeof c.t === 'string') return { sort_at: c.t, rid: c.i };
     throw new QueryError('search.bad_cursor', 'cursor is malformed');
 }
 
 /** What a viewer gets for one document: never the ACL, the hash or the owner's internals. */
-function projection(doc, row, snip) {
+function projection(doc, row, snip, ranks) {
     const out = {
         owner: doc.owner, type: doc.type, id: doc.id, revision: doc.revision,
         visibility: doc.visibility,
@@ -96,6 +102,7 @@ function projection(doc, row, snip) {
         indexable: row.index_decision === 'index',
     };
     if (snip !== undefined) out.snippet_html = snippetHtml(snip);
+    if (ranks !== undefined) out.ranks = ranks;
     return out;
 }
 
@@ -118,12 +125,57 @@ function canView(viewer, row, doc) {
 
 /**
  * One search as a viewer: the query API, saved-search runs and the HTML page all go through here.
- *   run({ text, query, viewer, limit, cursor, facetKeys, now, since }) → { results, next_cursor, facets? }
+ *   run({ text, query, viewer, limit, cursor, facetKeys, now, since }) → { results, next_cursor, explain, facets? }
  * `query` is the query-string-shaped filter source (owner, type, lang, facet.<key>). `since` (epoch ms,
  * internal callers only: the saved-search notifier) keeps documents indexed after it; the public
  * API never passes it. Throws QueryError for a malformed request.
+ *
+ * With a vector store and embeddings configured, a query of at least two characters also ranks the
+ * public listed documents by cosine distance (top 100) and fuses that list with the keyword top 100 by
+ * reciprocal rank fusion (k = 60). The keyword list still supplies snippets, filters, facet counts and
+ * the ACL: the vector list is public-only, and every fused hit is re-checked by canView. When vectors
+ * are not available, AI fails or the query is too short, the answer is exactly today's keyword page and
+ * `explain` says which reason applied. Keyword paging keeps its rank/rid cursor; a hybrid page carries
+ * an offset into the fused list. `ranks` on each hit are 1-based positions in the two lists (null when
+ * the hit is absent from one).
  */
-function createSearcher({ config, store, engine, now: clock = () => Date.now() }) {
+function createSearcher({ config, store, engine, vectorStore = null, embeddings = null, now: clock = () => Date.now() }) {
+    const queryEmbeddings = embeddings ? createQueryEmbeddingCache({ client: embeddings, now: clock }) : null;
+
+    /** 'no_vectors' when the extension/table or a current-model embedding is missing, else null. */
+    async function vectorAvailability() {
+        if (!vectorStore || typeof vectorStore.available !== 'function') return 'no_vectors';
+        try {
+            if (!await vectorStore.available()) return 'no_vectors';
+            if (typeof vectorStore.hasEmbeddings === 'function' && !await vectorStore.hasEmbeddings()) return 'no_vectors';
+        } catch {
+            return 'no_vectors';
+        }
+        return null;
+    }
+
+    /** The ranking this query would get: { ranking: 'hybrid', vector } or { ranking: 'keyword', reason }. */
+    async function semanticState(text) {
+        const unavailable = await vectorAvailability();
+        if (unavailable) return { ranking: 'keyword', reason: unavailable };
+        if (String(text).trim().length < 2) return { ranking: 'keyword', reason: 'short_query' };
+        if (!queryEmbeddings) return { ranking: 'keyword', reason: 'ai_unavailable' };
+        const embedded = await queryEmbeddings.get(text);
+        if (!embedded.ok) return { ranking: 'keyword', reason: 'ai_unavailable' };
+        if (vectorStore.dim && embedded.vector.length !== vectorStore.dim) return { ranking: 'keyword', reason: 'ai_unavailable' };
+        return { ranking: 'hybrid', vector: embedded.vector };
+    }
+
+    /** The two top-100 lists and their RRF order; snippets come from the keyword side. */
+    async function hybridCandidates({ match, filters, viewer, now, vector }) {
+        const [keyword, vectorHits] = await Promise.all([
+            engine.search({ match, filters, viewer, limit: HYBRID_CANDIDATES, now }),
+            vectorStore.nearest({ vector, filters, viewer, limit: HYBRID_CANDIDATES }),
+        ]);
+        const snips = new Map(keyword.hits.map((h) => [h.rid, h.snip]));
+        return fuseRrf(keyword.hits, vectorHits).map((h) => ({ ...h, snip: snips.get(h.rid) }));
+    }
+
     async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock(), since = null }) {
         if (text.length > 500) throw new QueryError('search.bad_query', 'q is longer than 500 characters');
         filters = filters || parseFilters(query, config);
@@ -131,33 +183,71 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
         limit = Math.min(Math.max(parseInt(limit, 10) || config.query.defaultLimit, 1), config.query.maxLimit);
         if (facetKeys.length > 5 || facetKeys.some(k => !FACET_KEY_RE.test(k))) throw new QueryError('search.bad_query', 'facets: at most 5 well-formed keys');
 
-        const match = text.trim() ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
+        const trimmed = text.trim();
+        const match = trimmed ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
         const hash = queryHash([match, filters]);
         const after = decodeCursor(cursor, hash);
-        if (text.trim() && !match) {
-            return { results: [], next_cursor: null, ...(facetKeys.length ? { facets: Object.fromEntries(facetKeys.map(k => [k, []])) } : {}) };
+        if (trimmed && !match) {
+            const unavailable = await vectorAvailability();
+            return {
+                results: [], next_cursor: null,
+                explain: { ranking: 'keyword', reason: unavailable || 'short_query' },
+                ...(facetKeys.length ? { facets: Object.fromEntries(facetKeys.map(k => [k, []])) } : {}),
+            };
         }
-        let page;
+
+        const results = [];
+        let next = null;
+        let explain;
         let refNow = now;
         if (match) {
-            if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-            if (after && after.now != null) refNow = after.now;
-            page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
+            const state = await semanticState(trimmed);
+            if (state.ranking === 'hybrid') {
+                if (after && after.offset === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
+                if (after && after.now != null) refNow = after.now;
+                const fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
+                let consumed = after ? after.offset : 0;
+                let lastRid = after ? after.rid : null;
+                for (let i = consumed; i < fused.length && results.length < limit; i++) {
+                    const f = fused[i];
+                    consumed = i + 1;
+                    lastRid = f.rid;
+                    const found = await store.byRid(f.rid);
+                    // Defence in depth: the vector store is public-only, the keyword SQL is ACL-aware.
+                    if (!found || !canView(viewer, found.row, found.doc)) continue;
+                    results.push(projection(found.doc, found.row, f.snip, f.ranks));
+                }
+                if (consumed < fused.length) next = encodeCursor({ k: 'f', o: consumed, i: lastRid, n: refNow, h: hash });
+                explain = { ranking: 'hybrid' };
+            } else {
+                if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
+                if (after && after.now != null) refNow = after.now;
+                const page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
+                let position = 0;
+                for (const h of page.hits) {
+                    position++;
+                    const found = await store.byRid(h.rid);
+                    // Defence in depth: the engine already filtered; re-check against the stored row.
+                    if (!found || !canView(viewer, found.row, found.doc)) continue;
+                    results.push(projection(found.doc, found.row, h.snip, { keyword: position, vector: null }));
+                }
+                next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash }) : null;
+                explain = { ranking: 'keyword', reason: state.reason };
+            }
         } else {
             if (after && after.sort_at === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-            page = await engine.browse({ filters, viewer, limit, after });
+            const page = await engine.browse({ filters, viewer, limit, after });
+            for (const h of page.hits) {
+                const found = await store.byRid(h.rid);
+                if (!found || !canView(viewer, found.row, found.doc)) continue;
+                results.push(projection(found.doc, found.row));
+            }
+            next = page.next ? encodeCursor({ k: 't', t: page.next.sort_at, i: page.next.rid, h: hash }) : null;
+            const unavailable = await vectorAvailability();
+            explain = { ranking: 'keyword', reason: unavailable || 'short_query' };
         }
-        const results = [];
-        for (const h of page.hits) {
-            const found = await store.byRid(h.rid);
-            // Defence in depth: the engine already filtered; re-check against the stored row.
-            if (!found || !canView(viewer, found.row, found.doc)) continue;
-            results.push(projection(found.doc, found.row, match ? h.snip : undefined));
-        }
-        const next = page.next
-            ? encodeCursor(match ? { k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash } : { k: 't', t: page.next.sort_at, i: page.next.rid, h: hash })
-            : null;
-        const body = { results, next_cursor: next };
+
+        const body = { results, next_cursor: next, explain };
         if (facetKeys.length) body.facets = await engine.facetCounts({ match, filters, viewer, keys: facetKeys });
         return body;
     }
@@ -166,6 +256,7 @@ function createSearcher({ config, store, engine, now: clock = () => Date.now() }
         run,
         parseFilters: (query) => parseFilters(query, config),
         hasWords: (text) => toMatch(text, { maxTerms: config.query.maxTerms }) !== null,
+        vectorAvailability,
     };
 }
 
@@ -200,7 +291,7 @@ function withViewer(auth, handler, limit = null) {
     };
 }
 
-function queryRouter({ config, store, engine, auth, limits, searcher = createSearcher({ config, store, engine }) }) {
+function queryRouter({ config, store, engine, auth, limits, vectorStore = null, embeddings = null, searcher = createSearcher({ config, store, engine, vectorStore, embeddings }) }) {
     const router = express.Router();
     const guarded = (limit, h) => withViewer(auth, h, limit);
 
@@ -254,4 +345,4 @@ function queryRouter({ config, store, engine, auth, limits, searcher = createSea
     return router;
 }
 
-module.exports = { queryRouter, createSearcher, withViewer, parseFilters, QueryError, canView, projection, toMatch, one };
+module.exports = { queryRouter, createSearcher, withViewer, parseFilters, QueryError, canView, projection, toMatch, one, fuseRrf };
