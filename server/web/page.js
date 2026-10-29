@@ -290,6 +290,27 @@ main.front .sc-code { grid-template-columns: minmax(0, 1fr); }
 main.front .sc-steps { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (max-width: 520px) { main.front .sc-code pre { white-space: pre-wrap; overflow-wrap: anywhere; } .fs-shelf li:nth-child(n+4) { display: none; } }
+/* Phones (2026-10-29): a taste and a door. The shelves are one row that scrolls sideways and the sources two (every one
+   is still there); the code folds under its heading; the questions are closed. */
+.fs-fold { border: 1px solid var(--line); border-radius: 16px; background: var(--bg-secondary); }
+.fs-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 0 18px; cursor: pointer; list-style: none; }
+.fs-fold > summary::-webkit-details-marker { display: none; }
+.fs-fold > summary h2 { margin: 0; }
+.fs-fold > summary span { color: var(--muted); font-weight: 600; font-size: .86rem; }
+.fs-fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 16px; }
+main .fs-fold .sc-sec { margin: 0; padding: 0 18px 18px; max-width: none; }
+.fs-qa > summary { list-style: none; cursor: pointer; }
+.fs-qa > summary::-webkit-details-marker { display: none; }
+.fs-qa > summary h3::after { content: '+'; float: right; margin-left: 10px; color: var(--muted); font-weight: 400; }
+.fs-qa[open] > summary h3::after { content: '\\2212'; }
+@media (max-width: 599px) {
+  .fs-shelves, #sources .sc-grid { display: grid; grid-auto-flow: column; grid-template-columns: none; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; gap: 10px; margin-left: -16px; margin-right: -16px; padding: 0 16px 4px; scroll-padding-inline: 16px; }
+  .fs-shelves { grid-auto-columns: 84%; }
+  #sources .sc-grid { grid-template-rows: repeat(2, auto); grid-auto-columns: 78%; }
+  .fs-shelves::-webkit-scrollbar, #sources .sc-grid::-webkit-scrollbar { display: none; }
+  .fs-shelves > *, #sources .sc-grid > * { min-width: 0; scroll-snap-align: start; }
+  .fs-fold > summary span { display: none; }
+}
 </style>`;
 function frontShowcase(owners = DEFAULT_EVENT_OWNERS, data = null) {
     // With the index's numbers: the sources that hold public documents, most first, each with what it holds. Without
@@ -308,17 +329,15 @@ function frontSections(data) {
 <p class="sc-lede">The newest public documents of each kind, as they reached the index.</p>
 <div class="fs-shelves">${data.shelves.map((sh) => `<section class="fs-shelf" aria-labelledby="h-${esc(sh.owner)}-${esc(sh.type)}"><div class="fs-shelf-head"><h3 id="h-${esc(sh.owner)}-${esc(sh.type)}">${esc(sh.title)}</h3><a href="/?owner=${encodeURIComponent(sh.owner)}&amp;type=${encodeURIComponent(sh.type)}">More<span class="sr-only"> ${esc(sh.title.toLowerCase())}</span></a></div>
 <ul>${sh.items.map((it) => { const href = safeHref(it.url); const d = dateOf(it.date); return `<li>${href ? `<a href="${esc(href)}">${esc(it.title || 'Untitled')}</a>` : esc(it.title || 'Untitled')}${d ? `<span>${esc((SOURCES[sh.owner] || [sh.owner])[0])} · ${d}</span>` : `<span>${esc((SOURCES[sh.owner] || [sh.owner])[0])}</span>`}</li>`; }).join('')}</ul></section>`).join('')}</div></section>` : '';
-    const api = showcase.code({
-        id: 'api',
-        title: 'Search from your own code',
+    const api = '<section class="sc-sec" id="api" aria-labelledby="h-api"><details class="fs-fold"><summary><h2 id="h-api">Search from your own code</h2><span>curl and openvibe-sdk</span></summary>' + showcase.code({
         lede: 'The same index as JSON. Signed out you get public documents; with a person\'s token, also what that person may see.',
         samples: [
             { label: 'Search (curl, no token)', lang: 'sh', code: 'curl "https://search.openvibe.network/api/v1/search?q=raspberry+pi&limit=5"\n\n# One site and kind, newest first\ncurl "https://search.openvibe.network/api/v1/search?owner=work&type=job"' },
             { label: 'JavaScript (openvibe-sdk)', lang: 'js', code: "import { createClient } from 'openvibe-sdk/core';\nimport { createSearchClient } from 'openvibe-sdk/search';\n\nconst search = createSearchClient(createClient());\nconst { results } = await search.query('raspberry pi', { limit: 5 });\nconst { suggestions } = await search.suggest('rasp');" },
         ],
-    });
+    }) + '</details></section>';
     const faq = `<section class="sc-sec" id="faq" aria-labelledby="h-faq"><h2 id="h-faq">Questions</h2>
-<div class="fs-faq">${FAQ.map(([q, a]) => `<div class="fs-qa"><h3>${esc(q)}</h3><p>${esc(a)}</p></div>`).join('')}</div></section>`;
+<div class="fs-faq">${FAQ.map(([q, a], i) => `<details class="fs-qa"${i === 0 ? ' open' : ''}><summary><h3>${esc(q)}</h3></summary><p>${esc(a)}</p></details>`).join('')}</div></section>`;
     return { statRow, shelves, api, faq };
 }
 
