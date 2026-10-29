@@ -14,17 +14,26 @@
  * and output schemas come from the published contracts at boot, so the enums cannot drift from the
  * fabric's request. There are no sessions and no Mcp-Session-Id: every call answers once as JSON.
  * A query is never echoed into any answer, a log line or an error.
+ *
+ * A call that needs a token and has none answers 401 with WWW-Authenticate: Bearer resource_metadata="…", so the
+ * client learns where the protected-resource metadata is (RFC 9728; server/protected-resource.js).
  */
 const fs = require('fs');
 const express = require('express');
+const { http } = require('openvibe-contracts');
+const cache = require('openvibe-shared/cache-policy');
 const pkg = require('../../package.json');
-const { withViewer, QueryError } = require('./query');
+const { QueryError } = require('./query');
+const { AuthError } = require('../auth');
+const protectedResource = require('../protected-resource');
 const { SEARCH_LIMITS } = require('./fabric');
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = Object.freeze(new Set(['2025-06-18', '2025-03-26']));
 const BODY_LIMIT = '64kb';
 const CONTRACT_DIR = 'openvibe-contracts/contracts/search';
+// The scopes a call gets when it names none: the same default the tool's schema and the fabric use.
+const DEFAULT_SCOPES = Object.freeze(['network']);
 
 /** The request/result contracts as JSON Schema objects, read from the package at startup. */
 function loadContracts() {
@@ -235,10 +244,65 @@ function sendRpc(res, status, body) {
     return res.status(status).json(body);
 }
 
+/** Does this call ask for the caller's own material? The "mine" scope does; it needs a person. */
+function wantsTheCallersOwn(args) {
+    const scopes = Array.isArray(args.scopes) && args.scopes.length ? args.scopes : DEFAULT_SCOPES;
+    return scopes.includes('mine');
+}
+
+/** 401 and the challenge: the call needs a token, and this is where to read how to get one. */
+function unauthorized(res, id, config) {
+    protectedResource.challenge(res, config);
+    return res.status(401).json({
+        jsonrpc: '2.0',
+        id: id === undefined ? null : id,
+        error: {
+            code: -32001,
+            message: 'Unauthorized: this call needs a person. Send a Network user token as a Bearer.',
+            data: { resource_metadata: protectedResource.metadataUrl(config) },
+        },
+    });
+}
+
+/**
+ * The viewer, with the RFC 9728 challenge on a 401: a client whose token does not verify is told where the
+ * protected-resource metadata is. The rest is the query route's withViewer (server/api/query.js).
+ */
+function withMcpViewer(auth, config, handler) {
+    return async (req, res, next) => {
+        const ctx = req.ov;
+        let viewer;
+        try {
+            viewer = await auth.viewer(req);
+        } catch (err) {
+            if (err instanceof AuthError) {
+                if (err.status === 401) protectedResource.challenge(res, config);
+                return http.sendProblem(res, err.status, err.code, { detail: err.message, ctx });
+            }
+            return next(err);
+        }
+        // Never cached: a visibility change or a deletion must leave results immediately.
+        res.setHeader('Cache-Control', cache.htmlHeaders({ private: true }));
+        res.setHeader('Vary', 'Authorization, Cookie, X-OV-Subject, X-OV-Groups, X-OV-Entitlements');
+        req.viewer = viewer;
+        return handler(req, res, viewer);
+    };
+}
+
 async function callTool(id, params, req, viewer, { fabric, searchLimit }) {
     const name = params.name;
     if (name !== SEARCH_TOOL.name && name !== PROVIDERS_TOOL.name) {
         return { response: error(id, -32602, 'Unknown tool') };
+    }
+
+    const args = params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
+        ? params.arguments : {};
+
+    // The "mine" scope is the caller's own private material, so it needs a person. An anonymous caller is told how
+    // to authenticate (401 and the RFC 9728 challenge) instead of getting an empty answer; a service token keeps
+    // its old answer, and with no X-OV-Subject the fabric says the scope needs a signed-in person.
+    if (name === SEARCH_TOOL.name && wantsTheCallersOwn(args) && (!viewer || viewer.kind === 'anonymous')) {
+        return { unauthorized: true, id };
     }
 
     const gate = await takeBudget(searchLimit, req);
@@ -255,8 +319,6 @@ async function callTool(id, params, req, viewer, { fabric, searchLimit }) {
         };
     }
 
-    const args = params.arguments && typeof params.arguments === 'object' && !Array.isArray(params.arguments)
-        ? params.arguments : {};
     let answer;
     try {
         answer = await fabric.query(fabricBody(args), viewer);
@@ -316,7 +378,7 @@ async function handleMessage(msg, req, viewer, deps) {
     }
 }
 
-function mcpRouter({ fabric, auth, limits }) {
+function mcpRouter({ fabric, auth, limits, config }) {
     const router = express.Router();
     const searchLimit = limits('search.fabric', SEARCH_LIMITS);
     // strict: false parses a scalar as JSON too, so "valid JSON, not a JSON-RPC message" is -32600
@@ -334,7 +396,7 @@ function mcpRouter({ fabric, auth, limits }) {
         res.status(204).end();
     });
 
-    router.post('/mcp', json, withViewer(auth, async (req, res, viewer) => {
+    router.post('/mcp', json, withMcpViewer(auth, config, async (req, res, viewer) => {
         const version = req.get('mcp-protocol-version');
         if (version && !SUPPORTED_VERSIONS.has(version)) {
             const body = req.body;
@@ -355,6 +417,7 @@ function mcpRouter({ fabric, auth, limits }) {
         const responses = [];
         for (const message of messages) {
             const out = await handleMessage(message, req, viewer, { fabric, searchLimit });
+            if (out.unauthorized) return unauthorized(res, out.id, config);
             if (out.limited) return sendLimited(res, out.limited);
             if (out.response) responses.push(out.response);
         }

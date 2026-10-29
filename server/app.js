@@ -10,6 +10,7 @@ const { documentsRouter } = require('./api/documents');
 const { queryRouter, createSearcher } = require('./api/query');
 const { fabricRouter } = require('./api/fabric');
 const { mcpRouter } = require('./api/mcp');
+const protectedResource = require('./protected-resource');
 const { createQueryCache } = require('./fabric/cache');
 const { createWebProviders } = require('./fabric/web');
 const { createFabric } = require('./fabric');
@@ -90,7 +91,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(fabricRouter({ fabric, auth, limits }));
     // MCP over Streamable HTTP: the same fabric, viewer and search.fabric limit as the query route above.
-    app.use(mcpRouter({ fabric, auth, limits }));
+    app.use(mcpRouter({ fabric, auth, limits, config }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
@@ -98,6 +99,13 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     const frontData = createFrontData({ store, searcher, log });
     const webPages = pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData });
     app.use(webPages);
+    // RFC 9728: the protected-resource metadata for the MCP endpoint (server/protected-resource.js). The document a
+    // client reads to learn that openvibe.network signs the tokens /mcp accepts, and the URL the 401 challenge names.
+    app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+        res.set('Cache-Control', 'public, max-age=3600');
+        res.json(protectedResource.document(config));
+    });
+
     // The agent layer (openvibe-shared/agent-layer): /.well-known/agent.json, and the Markdown twins of the public
     // pages. Mounted after the page router, so a browser gets the page's own head and cache and only a twin request
     // reaches it; before the 404, so an unknown .md is a 404.
