@@ -93,7 +93,15 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
     // The front page's numbers and shelves (server/web/front-data.js): read as an anonymous visitor, kept five minutes.
     const frontData = createFrontData({ store, searcher, log });
-    app.use(pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData }));
+    const webPages = pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData });
+    app.use(webPages);
+    // The agent layer (openvibe-shared/agent-layer): /.well-known/agent.json, and the Markdown twins of the public
+    // pages. Mounted after the page router, so a browser gets the page's own head and cache and only a twin request
+    // reaches it; before the 404, so an unknown .md is a 404.
+    require('openvibe-shared/agent-layer').mount(app, {
+        descriptor: require('./agent-descriptor'),
+        render: require('./web/agent-pages').createAgentPages({ router: webPages }).renderPublicPage,
+    });
 
     app.use((req, res) => http.sendProblem(res, 404, 'search.not_found', { detail: `no route ${req.method} ${req.path}`, ctx: req.ov }));
 

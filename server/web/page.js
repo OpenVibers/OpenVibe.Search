@@ -117,6 +117,7 @@ function robotsTxt(origin) {
         '# page and the update log. Result pages carry their own X-Robots-Tag: noindex, and the API, the',
         '# Events webhook and owner writes are not for crawling.',
         seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/'] }),
+        `# Agent manifest: ${origin}/.well-known/agent.json`,
     ].join('\n');
 }
 
@@ -327,6 +328,7 @@ function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front
     return shell.page({
         ...FRAME,
         title, description, canonical: url, jsonLd,
+        agentLayer: !noindex,
         robots: noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1',
         // The AI summary (and its WebPage JSON-LD) only where the page may be indexed, like the rest of the JSON-LD.
         ...(noindex ? {} : { summary: SITE_DESCRIPTION, url }),
@@ -408,6 +410,14 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
 function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS, frontData = null }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
+    // Markdown twin requests and the agent manifest go to openvibe-shared/agent-layer, mounted after this router:
+    // .md paths, ?format=markdown, an explicit text/markdown preference, and /.well-known/.
+    router.use((req, res, next) => {
+        const p = String(req.path || '');
+        if (p.endsWith('.md') || p.startsWith('/.well-known/') || (req.query && req.query.format === 'markdown')
+            || req.accepts(['html', 'text/markdown']) === 'text/markdown') return next('router');
+        return next();
+    });
 
     // What shipped on OpenVibe.Search: the shared update log every OpenVibe site has.
     router.get('/updates', (_req, res) => {
@@ -493,6 +503,13 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         // JSON-LD only where the page may be indexed: the plain front page, never a result page.
         const isFront = !searching && status === 200;
         const jsonLd = isFront ? homeJsonLd(origin, data) : null;
+        const twinParams = new URLSearchParams();
+        if (q) twinParams.set('q', q);
+        if (owner) twinParams.set('owner', owner);
+        if (type) twinParams.set('type', type);
+        if (cursor) twinParams.set('cursor', cursor);
+        const twinCanonical = `${origin}/${twinParams.toString() ? `?${twinParams.toString()}` : ''}`;
+        res.setHeader('Link', seo.linkHeaderTags(twinCanonical, `${origin}/llms.txt`).header);
         res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '' }));
     });
 
