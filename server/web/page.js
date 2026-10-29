@@ -411,10 +411,11 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
     // Markdown twin requests and the agent manifest go to openvibe-shared/agent-layer, mounted after this router:
-    // .md paths, ?format=markdown, an explicit text/markdown preference, and /.well-known/.
+    // .md paths, ?format=markdown, an explicit text/markdown preference, and the manifest's own path (any other
+    // /.well-known/ file stays this router's, exactly as security.txt does on Chat).
     router.use((req, res, next) => {
         const p = String(req.path || '');
-        if (p.endsWith('.md') || p.startsWith('/.well-known/') || (req.query && req.query.format === 'markdown')
+        if (p === '/.well-known/agent.json' || p.endsWith('.md') || (req.query && req.query.format === 'markdown')
             || req.accepts(['html', 'text/markdown']) === 'text/markdown') return next('router');
         return next();
     });
@@ -424,6 +425,8 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         res.setHeader('Content-Security-Policy', CSP);
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Cache-Control', cache.htmlHeaders({ maxAge: 60 }));
+        // This page has a Markdown twin (/updates.md), so its header names it, as the head tags do.
+        res.setHeader('Link', seo.linkHeaderTags(`${origin}/updates`, `${origin}/llms.txt`).header);
         res.type('html').send(layout({ title: 'What shipped on OpenVibe.Search', q: '', owner: '', type: '', ownHeading: true, body: frame.updatesBody({ service: 'search', siteName: 'OpenVibe.Search' }) + `<script src="${ovServe.url('shipped.js')}" defer></script>`, canonical: `${origin}/updates` }));
     });
 

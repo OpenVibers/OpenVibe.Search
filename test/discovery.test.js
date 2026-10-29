@@ -121,6 +121,34 @@ t('the route index is built from routes only: every entry gets a line of text, n
     assert.ok(!/saved-searches|\/api\/v1\/owners|\/internal\/events|\/api\/v1\/documents/.test(text));
 });
 
+t('the agent layer: manifest, twins, and the pages that name them', async () => {
+    const m = await request(svc.base, 'GET', '/.well-known/agent.json');
+    assert.strictEqual(m.status, 200);
+    assert.match(m.headers.get('content-type'), /application\/json/);
+    const d = JSON.parse(m.text);
+    assert.strictEqual(d.id, 'search');
+    assert.strictEqual(d.home, 'https://search.openvibe.network');
+    assert.strictEqual(d.api, 'https://search.openvibe.network/api/v1');
+    assert.deepStrictEqual(d.policy.auth, ['none', 'Network OIDC']);
+    // A twin of the front page and of the update log, from the pages' own render. The twin's canonical is the
+    // manifest's home (the site's public address), not the test server's own base URL.
+    for (const [p, canonical] of [['/index.md', 'https://search.openvibe.network/'], ['/updates.md', 'https://search.openvibe.network/updates']]) {
+        const tw = await request(svc.base, 'GET', p);
+        assert.strictEqual(tw.status, 200, `${p} answers`);
+        assert.match(tw.headers.get('content-type'), /text\/markdown/, `${p} is markdown`);
+        assert.ok(tw.text.includes(`canonical: "${canonical}"`), `${p} names its page`);
+    }
+    // The HTML page names its twin in the Link header and the head; a result page is noindex but still twinned.
+    for (const p of ['/', '/updates']) {
+        const page = await request(svc.base, 'GET', p, { headers: { accept: 'text/html' } });
+        assert.strictEqual(page.status, 200);
+        assert.match(String(page.headers.get('link')), /rel="alternate"; type="text\/markdown"/, `${p} names its twin`);
+        assert.match(page.text, /<link rel="alternate" type="text\/markdown"/, `${p} carries the head tag`);
+    }
+    const results = await request(svc.base, 'GET', '/?q=page&format=markdown');
+    assert.match(results.headers.get('content-type'), /text\/markdown/, 'a result twin answers for an agent');
+});
+
 t('shutdown', async () => { await svc.stop(); });
 
 t.run();
