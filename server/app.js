@@ -19,6 +19,7 @@ const { pageRouter } = require('./web/page');
 const { webhookRouter } = require('./api/webhook');
 const { createLimits } = require('./actor-limits');
 const { createIndexNow } = require('openvibe-shared/indexnow');
+const openapi = require('./openapi');
 const pkg = require('../package.json');
 
 function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, fetchImpl = globalThis.fetch, log = console, now }) {
@@ -68,6 +69,8 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // fails; the Network key and index consistency are optional and degrade it (see observability.js).
     const readiness = createSearchReadiness({ db, config, engine, store, outbox, purges, purger, saved, notifier, release: release.release });
     app.get('/api/ready', readiness.handler);
+    // GET /openapi.json: the public OpenAPI 3.1 document (server/openapi.js); /api/v1/openapi.json redirects here.
+    openapi.mount(app);
     // GET /release.json (ADR-016) and POST /release-metrics (open tabs' update reports into /metrics).
     release.mount(app, { registry: metrics.registry });
 
