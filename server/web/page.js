@@ -311,6 +311,16 @@ main .fs-fold .sc-sec { margin: 0; padding: 0 18px 18px; max-width: none; }
   .fs-shelves > *, #sources .sc-grid > * { min-width: 0; scroll-snap-align: start; }
   .fs-fold > summary span { display: none; }
 }
+
+/* Touch targets on phones (fleet audit, 2026-10-29): touch pointers only. */
+@media (pointer: coarse) {
+  .fs-try a { min-height: 44px; display: inline-flex; align-items: center; }
+  details.fs-qa > summary, .fs-qa > summary { min-height: 44px; }
+  .fs-shelf-head a { position: relative; display: inline-block; }
+  .fs-shelf-head a::after { content: ''; position: absolute; left: 0; right: 0; top: -12px; bottom: -12px; }
+  .fs-shelf > a { position: relative; display: inline-block; }
+  .fs-shelf > a::after { content: ''; position: absolute; left: 0; right: 0; top: -10px; bottom: -10px; }
+}
 </style>`;
 function frontShowcase(owners = DEFAULT_EVENT_OWNERS, data = null) {
     // With the index's numbers: the sources that hold public documents, most first, each with what it holds. Without
