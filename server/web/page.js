@@ -262,6 +262,9 @@ main .sc-hero h1 { font-size: clamp(30px, 6vw, 44px); }
 main .sc-hero + form { margin-top: 20px; }
 main .sc-sec { margin-top: 40px; }
 main.front { max-width: 1080px; }
+/* The shared hero draws its aura past the right edge (openvibe-shared showcase, .sc-hero-vis at right:-54px), which
+   makes a phone page ~44px wider than the screen. Clip the page on this axis only; vertical scrolling is untouched. */
+main.front { overflow-x: clip; }
 main.front > form { max-width: 760px; }
 .sc-eyebrow { color: color-mix(in srgb, var(--accent-light, #60a5fa) 45%, var(--text-primary)); }
 .fs-try { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
@@ -272,7 +275,8 @@ main.front > form { max-width: 760px; }
 .fs-stats li { display: grid; gap: 2px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-secondary); overflow-wrap: normal; }
 .fs-stats b { font-size: 28px; line-height: 1.1; letter-spacing: -.02em; }
 .fs-stats span { font-size: .85rem; color: var(--muted); }
-.fs-shelves { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+/* Positioned: their hidden labels (.sr-only) are absolute and would land past the last off-screen shelf. */
+.fs-shelves { position: relative; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
 .fs-shelf { min-width: 0; padding: 14px 16px 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-secondary); }
 .fs-shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .fs-shelf-head h3 { margin: 0 0 6px; font-size: 1rem; }
