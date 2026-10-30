@@ -23,7 +23,7 @@ const { createIndexNow } = require('openvibe-shared/indexnow');
 const openapi = require('./openapi');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, fetchImpl = globalThis.fetch, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, accountData = null, accountSend = null, fetchImpl = globalThis.fetch, log = console, now }) {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
@@ -58,7 +58,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
 
     // This site's own pinned copy of the OpenVibe Frame's browser files (openvibe-shared/serve).
     app.use('/shared', require('openvibe-shared/serve').handler());
-    app.use(webhookRouter({ config, db, store, outbox, log, now }));
+    app.use(webhookRouter({ config, db, store, outbox, accountData, accountSend, log, now }));
 
     app.use('/api', express.json({ limit: config.maxBodyBytes, type: ['application/json', 'application/*+json'] }));
 
