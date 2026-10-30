@@ -284,4 +284,43 @@ t('hybrid: a vector hit farther than the floor is dropped, so an unrelated query
     }
 });
 
+t('deals: a title or category match outranks a description-only match (11-01)', async () => {
+    const vectors = new FakeVectors();
+    const embeddings = fakeEmbeddings();
+    const svc = await boot({ vectorStore: vectors, embeddingClient: embeddings });
+    try {
+        // The two offers production ranked wrong for "mechanical keyboard": the real product (title and category)
+        // and Bit Blaster XL, a game whose description says "Keyboard + Gamepad Support".
+        await svc.store.apply(doc({
+            owner: 'deals', type: 'offer', id: 'k2', title: 'Keychron K2 Mechanical Keyboard',
+            summary: 'A compact mechanical keyboard.', body: 'Keychron K2 Mechanical Keyboard\nA compact mechanical keyboard.',
+            facets: { category: 'Keyboards' }, canonical_url: 'https://openvibe.deals/d/k2',
+        }));
+        await svc.store.apply(doc({
+            owner: 'deals', type: 'offer', id: 'bit-blaster', title: 'Bit Blaster XL',
+            summary: 'Mechanical keyboard support and a gamepad. An arcade shoot \'em up.',
+            body: 'Bit Blaster XL\nMechanical keyboard support and a gamepad.',
+            facets: { category: 'Games' }, canonical_url: 'https://openvibe.deals/d/bit-blaster',
+        }));
+        const rid = await ridMap(svc.db);
+        // The vector side admitted the game under the 0.30 floor (config.query.vectorMaxDistance) and ranked it
+        // first; the keyword side also matched "mechanical keyboard" in its description. Without the deals
+        // order, RRF puts the game above the one result whose title and category are the product asked for.
+        vectors.hits = [{ rid: rid['bit-blaster'], distance: 0.12 }];
+
+        const r = await request(svc.base, 'GET', '/api/v1/search?q=mechanical%20keyboard&owner=deals&limit=10');
+        assert.strictEqual(r.status, 200, r.text);
+        assert.deepStrictEqual(r.body.explain, { ranking: 'hybrid' });
+        assert.deepStrictEqual(r.body.results.map((x) => x.id), ['k2', 'bit-blaster'], 'the keyboard is the deal, the game is not');
+        assert.deepStrictEqual(r.body.results.find((x) => x.id === 'k2').ranks, { keyword: 1, vector: null });
+        assert.deepStrictEqual(r.body.results.find((x) => x.id === 'bit-blaster').ranks, { keyword: 2, vector: 1 });
+
+        // The order is only the deals owner's: the same two documents unowned keep the fused order.
+        const all = await request(svc.base, 'GET', '/api/v1/search?q=mechanical%20keyboard&limit=10');
+        assert.deepStrictEqual(all.body.results.map((x) => x.id), ['bit-blaster', 'k2'], 'other owners stay on RRF');
+    } finally {
+        await svc.stop();
+    }
+});
+
 t.run();

@@ -123,6 +123,45 @@ function canView(viewer, row, doc) {
     return false;
 }
 
+// ── Deals: a title or category match outranks a description-only one (11-01) ───────────────────
+// "mechanical keyboard" ranked Bit Blaster XL as the only deal: its description says "Keyboard + Gamepad Support",
+// and a near vector hit (under the 0.30 floor) plus a description keyword hit beat the real product. For the deals
+// owner, every result whose title or category names the thing asked for (the query's head noun: a keyboard, not a
+// game) comes before one that only matched in its summary or body, and a vector-only hit (no keyword match at all)
+// comes last. The order inside each group stays the fused order, so relevance still decides among equals.
+const WORD_RE = /[\p{L}\p{N}]+/gu;
+function foldedWords(text) {
+    return String(text || '').normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase().match(WORD_RE) || [];
+}
+/** "keyboard" carries "keyboards" and the other way round once the shorter word is at least four letters. */
+function wordMatches(token, word) {
+    return token === word || token.startsWith(word) || (token.length >= 4 && word.startsWith(token));
+}
+function titleOrCategoryMatch(doc, match) {
+    if (!doc || !match || !match.words.length) return false;
+    const category = doc.facets && doc.facets.category;
+    const text = `${doc.title || ''} ${Array.isArray(category) ? category.join(' ') : (category || '')}`;
+    const tokens = foldedWords(text);
+    // The head noun is what the person wants ("mechanical keyboard" -> keyboard); a modifier may only be in the
+    // description, and that is still a title/category match for the product.
+    const head = match.words[match.words.length - 1];
+    return tokens.some((t) => wordMatches(t, head));
+}
+async function dealsOrder(fused, { match, store }) {
+    if (!match || !match.words.length) return fused;
+    const rows = new Map();
+    for (const hit of fused) rows.set(hit.rid, await store.byRid(hit.rid));
+    const tierOf = (hit) => {
+        const found = rows.get(hit.rid);
+        if (found && titleOrCategoryMatch(found.doc, match)) return 0;
+        return hit.ranks && hit.ranks.keyword != null ? 1 : 2;
+    };
+    return fused
+        .map((hit, i) => ({ hit, i, tier: tierOf(hit) }))
+        .sort((a, b) => a.tier - b.tier || a.i - b.i)
+        .map(({ hit }) => ({ ...hit, found: rows.get(hit.rid) }));
+}
+
 /**
  * One search as a viewer: the query API, saved-search runs and the HTML page all go through here.
  *   run({ text, query, viewer, limit, cursor, facetKeys, now, since }) → { results, next_cursor, explain, facets? }
@@ -209,15 +248,17 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
             if (state.ranking === 'hybrid') {
                 if (after && after.offset === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
                 if (after && after.now != null) refNow = after.now;
-                const fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
+                let fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
+                // Deals: the product the person asked for (its title or category) beats a description-only match.
+                if (filters.owner === 'deals') fused = await dealsOrder(fused, { match, store });
                 let consumed = after ? after.offset : 0;
                 let lastRid = after ? after.rid : null;
                 for (let i = consumed; i < fused.length && results.length < limit; i++) {
                     const f = fused[i];
                     consumed = i + 1;
                     lastRid = f.rid;
-                    const found = await store.byRid(f.rid);
                     // Defence in depth: the vector store is public-only, the keyword SQL is ACL-aware.
+                    const found = f.found !== undefined ? f.found : await store.byRid(f.rid);
                     if (!found || !canView(viewer, found.row, found.doc)) continue;
                     results.push(projection(found.doc, found.row, f.snip, f.ranks));
                 }
