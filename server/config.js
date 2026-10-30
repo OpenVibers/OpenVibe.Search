@@ -95,6 +95,12 @@ function load(env = process.env) {
             defaultLimit: 20,
             maxTerms: 16,
             maxFacetFilters: 8,
+            // The farthest a vector-only hit may be (cosine distance, bge-small-en-v1.5). Measured on production
+            // 2026-10-30: real matches sit at 0.15-0.23 ("merge pdf" -> Merge PDF 0.153), the nearest document to an
+            // unrelated query at 0.34-0.55 ("mechanical keyboard" -> Pitch Changer 0.392). Without a floor every query
+            // returned its five nearest tools, related or not. SEARCH_VECTOR_MAX_DISTANCE overrides.
+            vectorMaxDistance: Number.isFinite(Number(env.SEARCH_VECTOR_MAX_DISTANCE)) && env.SEARCH_VECTOR_MAX_DISTANCE !== '' && env.SEARCH_VECTOR_MAX_DISTANCE != null
+                ? Number(env.SEARCH_VECTOR_MAX_DISTANCE) : 0.30,
         },
         maxBodyBytes: int(env.SEARCH_MAX_BODY_BYTES, 256 * 1024),
 
