@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { http } = require('openvibe-contracts');
 const { validate } = require('../document');
+const { TOPICS: ACCOUNT_TOPICS } = require('openvibe-sdk/account-data');
 
 const CONSUMER = 'search-index';
 const TYPE_RE = /^([a-z][a-z0-9-]{1,39})\.index_document\.(upserted|deleted)$/;
@@ -119,7 +120,7 @@ function documentFromEvent(event, owners) {
     return { doc };
 }
 
-function webhookRouter({ config, db, store, outbox, log = console, now }) {
+function webhookRouter({ config, db, store, outbox, accountData = null, accountSend = null, log = console, now }) {
     const router = express.Router();
     const inbox = createInbox(db, { now });
 
@@ -142,6 +143,7 @@ function webhookRouter({ config, db, store, outbox, log = console, now }) {
             }
 
             const r = await inbox.once(event.event_id, async () => {
+                if (accountData && ACCOUNT_TOPICS.includes(event.event_type)) return accountData.apply(event, { send: accountSend });
                 const parsed = documentFromEvent(event, config.events.owners);
                 if (parsed.ignore) return 'ignored';
                 if (parsed.reject) {

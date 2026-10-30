@@ -23,6 +23,8 @@ const { createSearcher } = require('./api/query');
 const { createNetworkPush } = require('./network-push');
 const { createSavedNotifier } = require('./saved-notifier');
 const { createApp } = require('./app');
+const accountDataLib = require('./account-data');
+const { createNetworkSender, startSubscriptions } = require('openvibe-sdk/account-data');
 const { createPgVectorStore } = require('./fabric/vector-store');
 const { createEmbeddingClient } = require('./fabric/embed');
 const { createEmbedder } = require('./fabric/embedder');
@@ -62,7 +64,9 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         config, saved, searcher, now, log,
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
-    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient });
+    const accountData = accountDataLib.create({ db, log });
+    const accountSend = config.oauth.clientSecret ? createNetworkSender({ networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret }) : null;
+    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
@@ -80,16 +84,24 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     cachePruneTimer.unref?.();
 
     let server = null;
+    let accountSubscription = null;
     if (listen) {
         server = await new Promise((resolve, reject) => {
             const s = app.listen(config.port, config.host, () => resolve(s));
             s.on('error', reject);
         });
         log.log(`[search] listening on http://${config.host}:${server.address().port} (engine ${engine.name})`);
+        if (config.events.webhookSecrets.length && config.events.url && config.oauth.clientSecret) {
+            accountSubscription = startSubscriptions({
+                eventsUrl: config.events.url, endpoint: `http://127.0.0.1:${config.port}/internal/events`, secret: config.events.webhookSecrets[0],
+                networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret, log,
+            });
+        }
     }
 
     async function close() {
         clearInterval(pruneTimer);
+        if (accountSubscription) accountSubscription.stop();
         clearInterval(cachePruneTimer);
         jwks.stop();
         await outbox.stop();
