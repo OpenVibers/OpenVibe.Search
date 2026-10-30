@@ -262,4 +262,26 @@ t('hybrid: keyword and vector top-100 are fused, ranks are per hit, and a hidden
     }
 });
 
+t('hybrid: a vector hit farther than the floor is dropped, so an unrelated query answers nothing (10-30)', async () => {
+    const vectors = new FakeVectors();
+    const embeddings = fakeEmbeddings();
+    const svc = await boot({ vectorStore: vectors, embeddingClient: embeddings });
+    try {
+        await svc.store.apply(doc({ id: 'pitch', title: 'Pitch Changer', body: 'shift the pitch of audio' }));
+        await svc.store.apply(doc({ id: 'merge', title: 'Merge PDF', body: 'join pdf files' }));
+        const rid = await ridMap(svc.db);
+        // What production measured for "mechanical keyboard": the nearest document is an audio tool at 0.392.
+        vectors.hits = [{ rid: rid.pitch, distance: 0.392 }, { rid: rid.merge, distance: 0.55 }];
+        let r = await request(svc.base, 'GET', '/api/v1/search?q=mechanical%20keyboard&limit=10');
+        assert.strictEqual(r.status, 200, r.text);
+        assert.deepStrictEqual(r.body.results, [], 'nothing near and no keyword hit: no results');
+        // A near vector hit still counts.
+        vectors.hits = [{ rid: rid.merge, distance: 0.153 }];
+        r = await request(svc.base, 'GET', '/api/v1/search?q=combine%20documents&limit=10');
+        assert.deepStrictEqual(r.body.results.map((x) => x.id), ['merge']);
+    } finally {
+        await svc.stop();
+    }
+});
+
 t.run();

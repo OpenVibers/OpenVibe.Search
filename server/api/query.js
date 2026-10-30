@@ -173,7 +173,11 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
             vectorStore.nearest({ vector, filters, viewer, limit: HYBRID_CANDIDATES }),
         ]);
         const snips = new Map(keyword.hits.map((h) => [h.rid, h.snip]));
-        return fuseRrf(keyword.hits, vectorHits).map((h) => ({ ...h, snip: snips.get(h.rid) }));
+        // A vector hit counts only when it is near enough to mean something (config.query.vectorMaxDistance); a query
+        // with no near document and no keyword hit answers nothing rather than its nearest strangers.
+        const floor = config.query.vectorMaxDistance;
+        const near = vectorHits.filter((h) => !(Number(h.distance) > floor));
+        return fuseRrf(keyword.hits, near).map((h) => ({ ...h, snip: snips.get(h.rid) }));
     }
 
     async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock(), since = null }) {
