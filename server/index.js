@@ -65,7 +65,6 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
     const accountData = accountDataLib.create({ db, log });
-    await accountData.ensureSchema();
     const accountSend = config.oauth.clientSecret ? createNetworkSender({ networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret }) : null;
     const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend });
 
