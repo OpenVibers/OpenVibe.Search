@@ -150,6 +150,25 @@ t('paging with More results, filters carried along, and an honest empty state', 
     assert.match(bad.text, /owner is malformed/);
 });
 
+t('a browser that asks for a missing page gets the site 404 page; an API client the problem document', async () => {
+    const r = await html('/no-such-page-xyz');
+    assert.strictEqual(r.status, 404);
+    assert.match(r.headers.get('content-type'), /^text\/html/);
+    assert.ok(r.text.includes('<h1>Page not found</h1>'), r.text.slice(0, 300));
+    assert.match(r.text, /There is no page at this address on [^<]+\. The link may be old or mistyped\./);
+    assert.ok(r.text.includes('id="navbar-mount"'), 'the page is in the site Frame');
+    assert.ok(r.text.includes('<meta name="robots" content="noindex, nofollow">'));
+    assert.strictEqual(r.headers.get('x-robots-tag'), 'noindex, nofollow');
+    assert.ok(r.text.includes('class="sc-btn sc-primary" href="/"'), 'home is the first way back');
+    assert.match(r.headers.get('content-security-policy'), /default-src 'none'/);
+    const api = await request(svc.base, 'GET', '/api/no-such', { headers: { Accept: 'text/html' } });
+    assert.strictEqual(api.status, 404);
+    assert.match(api.headers.get('content-type'), /problem\+json/);
+    const notHtml = await request(svc.base, 'GET', '/no-such-page-xyz', { headers: { Accept: 'application/json' } });
+    assert.strictEqual(notHtml.status, 404);
+    assert.match(notHtml.headers.get('content-type'), /problem\+json/);
+});
+
 t('non-HTML clients get the text route index; robots.txt keeps result pages out', async () => {
     const r = await request(svc.base, 'GET', '/');
     assert.match(r.headers.get('content-type'), /text\/plain/);
