@@ -2,7 +2,8 @@
 /**
  * The public vhost (deploy/nginx/search.openvibe.network.conf) keeps its promises: the Network
  * wildcard certificate, client address from $remote_addr only, /metrics 404, the owner API, the
- * Events webhook and document writes loopback-only, and a JSON 404 for everything else.
+ * Events webhook and document writes loopback-only, and the app (its 404 page, or problem+json)
+ * for everything else.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -35,7 +36,7 @@ t('/metrics is 404; owner API, webhook and document writes are loopback-only', (
     assert.match(block('location ^~ /api/v1/documents/'), /limit_except GET \{\s*allow 127\.0\.0\.1;\s*allow ::1;\s*deny all;/);
 });
 
-t('the query API is GET-only and never cached by nginx; unknown paths get a JSON 404', () => {
+t('the query API is GET-only and never cached by nginx; unknown paths reach the app', () => {
     const q = block('location ~ ^/api/v1/(search|suggest)$');
     assert.match(q, /limit_except GET \{ deny all; \}/);
     assert.match(q, /proxy_no_cache 1;/);
@@ -43,8 +44,9 @@ t('the query API is GET-only and never cached by nginx; unknown paths get a JSON
     assert.match(f, /limit_except GET POST \{ deny all; \}/, 'the Search Fabric: GET or POST');
     assert.match(f, /limit_req zone=ovsearch_query/);
     assert.match(f, /proxy_no_cache 1;/, 'a personalised answer is never cached by nginx');
-    const body = /return 404 '(\{.*\})';/.exec(conf)[1];
-    assert.strictEqual(JSON.parse(body).code, 'search.not_found');
+    const catchAll = block('location / {');
+    assert.match(catchAll, /proxy_pass http:\/\/127\.0\.0\.1:4710;/, 'unknown paths reach the app (its 404 page, or problem+json)');
+    assert.ok(!/return 404 '\{/.test(conf), 'nginx no longer answers a static JSON 404 for the whole site');
 });
 
 t('the MCP endpoint is POST (and preflight OPTIONS) only, small, unbuffered and never cached', () => {
