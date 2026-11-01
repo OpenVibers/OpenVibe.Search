@@ -260,6 +260,15 @@ main .sc-hero, main .sc-sec { padding-left: 0; padding-right: 0; }
 main .sc-hero { padding-top: 16px; }
 main .sc-hero h1 { font-size: clamp(30px, 6vw, 44px); }
 main .sc-hero + form { margin-top: 20px; }
+main .sc-hero .sc-hero-aside .fs-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* On a phone the numbers are one sideways rail, so the search box stays in the first screen. */
+@media (max-width: 600px) {
+  main .sc-hero .sc-hero-aside .fs-stats { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 2px; }
+  main .sc-hero .sc-hero-aside .fs-stats::-webkit-scrollbar { display: none; }
+  main .sc-hero .sc-hero-aside .fs-stats li { flex: 0 0 auto; min-width: 132px; padding: 10px 14px; }
+  main .sc-hero .sc-hero-aside .fs-stats b { font-size: 22px; }
+}
+main .sc-hero .sc-part-of, main .sc-part-of { margin-top: 28px; }
 main .sc-sec { margin-top: 40px; }
 main.front { max-width: 1080px; }
 /* The shared hero draws its aura past the right edge (openvibe-shared showcase, .sc-hero-vis at right:-54px), which
@@ -338,7 +347,8 @@ function frontShowcase(owners = DEFAULT_EVENT_OWNERS, data = null) {
 /** The front page's data sections: the numbers, the shelves of newest documents, the API and the questions. */
 function frontSections(data) {
     const stats = data ? [[data.total, 'public documents'], [data.sources, 'sites sending'], [data.kinds, 'kinds of document'], [data.week, 'added or updated this week']].filter(([n]) => n > 0) : [];
-    const statRow = stats.length ? `<section class="sc-sec fs-stats-sec" aria-label="The index in numbers"><ul class="fs-stats">${stats.map(([n, label]) => `<li><b>${esc(fmt(n))}</b><span>${esc(label)}</span></li>`).join('')}</ul></section>` : '';
+    const statList = stats.length ? `<ul class="fs-stats" aria-label="The index in numbers">${stats.map(([n, label]) => `<li><b>${esc(fmt(n))}</b><span>${esc(label)}</span></li>`).join('')}</ul>` : '';
+    const statRow = statList ? `<section class="sc-sec fs-stats-sec">${statList}</section>` : '';
     const shelves = data && data.shelves.length ? `<section class="sc-sec" aria-labelledby="h-new"><h2 id="h-new">New on the network</h2>
 <p class="sc-lede">The newest public documents of each kind, as they reached the index.</p>
 <div class="fs-shelves">${data.shelves.map((sh) => `<section class="fs-shelf" aria-labelledby="h-${esc(sh.owner)}-${esc(sh.type)}"><div class="fs-shelf-head"><h3 id="h-${esc(sh.owner)}-${esc(sh.type)}">${esc(sh.title)}</h3><a href="/?owner=${encodeURIComponent(sh.owner)}&amp;type=${encodeURIComponent(sh.type)}">More<span class="sr-only"> ${esc(sh.title.toLowerCase())}</span></a></div>
@@ -352,11 +362,11 @@ function frontSections(data) {
     }) + '</details></section>';
     const faq = `<section class="sc-sec" id="faq" aria-labelledby="h-faq"><h2 id="h-faq">Questions</h2>
 <div class="fs-faq">${FAQ.map(([q, a], i) => `<details class="fs-qa"${i === 0 ? ' open' : ''}><summary><h3>${esc(q)}</h3></summary><p>${esc(a)}</p></details>`).join('')}</div></section>`;
-    return { statRow, shelves, api, faq };
+    return { statList, statRow, shelves, api, faq };
 }
 
 // ownHeading: the body brings its own <h1> (the update log), so the search page's heading and lede stay out.
-function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false, after = '', description = SITE_DESCRIPTION }) {
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false, after = '', description = SITE_DESCRIPTION, heroAside = '' }) {
     const url = noindex ? undefined : canonical;
     return shell.page({
         ...FRAME,
@@ -407,13 +417,17 @@ ${front ? showcase.hero({
         eyebrow: 'OpenVibe.Search · part of OpenVibe Services',
         title: 'Search the', accent: 'OpenVibe network',
         lede: 'Jobs, streams, clips, blog posts, hosting plans, coupons, places, tools and help from every OpenVibe site, in one index. Alpha: it holds what the sites have sent so far.',
-    }) + '<section class="sc-sec sc-part-of"><p class="sc-note">Part of <a href="https://openvibe.services/">OpenVibe Services</a>: the building blocks every OpenVibe product runs on, with one console, one account and one SDK.</p></section>' : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
+        // The index's own numbers beside the heading (2026-11-01): the generic aura left a tall empty band between the
+        // heading and the search box on a desktop.
+        ...(heroAside ? { html: heroAside } : {}),
+    }) : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
 ${owner ? `<input type="hidden" name="owner" value="${esc(owner)}">` : ''}${type ? `<input type="hidden" name="type" value="${esc(type)}">` : ''}<button type="submit">Search</button>
 </form>
-${front ? `<ul class="fs-try" aria-label="Try a search"><li>Try:</li>${EXAMPLES.map((e) => `<li><a href="/?q=${encodeURIComponent(e).replace(/%20/g, '+')}">${esc(e)}</a></li>`).join('')}</ul>` : ''}
+${front ? `<ul class="fs-try" aria-label="Try a search"><li>Try:</li>${EXAMPLES.map((e) => `<li><a href="/?q=${encodeURIComponent(e).replace(/%20/g, '+')}">${esc(e)}</a></li>`).join('')}</ul>
+<section class="sc-sec sc-part-of"><p class="sc-note">Part of <a href="https://openvibe.services/">OpenVibe Services</a>: the building blocks every OpenVibe product runs on, with one console, one account and one SDK.</p></section>` : ''}
 ${body}
 ${after}
 <section class="page-note">
@@ -513,7 +527,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         // With the index's numbers and shelves (server/web/front-data.js), read only for the plain front page.
         const data = !searching && frontData ? await frontData.read() : null;
         const front = frontSections(data);
-        let body = front.statRow + front.shelves + frontShowcase(owners, data) + '<p class="note">Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>';
+        let body = front.shelves + frontShowcase(owners, data) + '<p class="note">Filters: <code>?owner=wiki</code>, <code>?type=page</code>.</p>';
         const after = front.api + front.faq + frame.shipped({ service: 'search', title: 'Recently shipped on OpenVibe.Search' });
         let status = 200;
         if (searching) {
@@ -546,7 +560,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         if (cursor) twinParams.set('cursor', cursor);
         const twinCanonical = `${origin}/${twinParams.toString() ? `?${twinParams.toString()}` : ''}`;
         res.setHeader('Link', seo.linkHeaderTags(twinCanonical, `${origin}/llms.txt`).header);
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '' }));
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '', heroAside: isFront ? front.statList : '' }));
     });
 
     return router;
