@@ -39,6 +39,21 @@ t('boot and seed', async () => {
         await put({ owner: 'help', type: 'article', id: 'help-go-live', title: 'Can I go live without OBS?', summary: 'Yes. Go live straight from your browser, camera or screen on OpenVibe.Live, with no software to install.', canonical_url: 'https://openvibe.help/a/openvibe.live/can-i-go-live-without-obs' });
         await put({ owner: 'live', type: 'channel', id: 'channel-arman', title: 'Arman (@Arman)', summary: 'Arman streams on OpenVibe.Live.', canonical_url: 'https://openvibe.live/@Arman' });
 
+        // Live channels carry only the activity fields the index has: live now, followers. Their text is
+        // the same service sentence, so they tie inside the tier; the signal, then updated_at, decides.
+        const channel = (id, title, facets, updated_at) => put({
+            owner: 'live', type: 'channel', id, title, summary: `${title.split(' ')[0]} streams on OpenVibe.Live.`,
+            canonical_url: `https://openvibe.live/@${id}`, facets, updated_at,
+        });
+        await channel('channel-fans', 'Bea (@bea)', { category: 'irl', live: false, followers: 12 }, '2026-10-29T00:00:00Z');
+        await channel('channel-live', 'Cy (@cy)', { category: 'irl', live: true, followers: 0 }, '2026-10-28T00:00:00Z');
+        await channel('channel-idle', 'Di (@di)', { category: 'irl', live: false, followers: 0 }, '2026-10-27T00:00:00Z');
+        // A channel whose title says what was asked for outranks all the boilerplate-only ones.
+        await put({ owner: 'live', type: 'channel', id: 'channel-title', title: 'OpenVibe Live Now', summary: 'A real description of this channel.', canonical_url: 'https://openvibe.live/@now', facets: { category: 'irl', live: false, followers: 0 }, updated_at: '2026-10-26T00:00:00Z' });
+
+        // Equal VODs (same title, summary and body) carry their only difference in duration_seconds.
+        await put({ owner: 'live', type: 'vod', id: 'vod-meteor-short', title: 'Meteor run', summary: 'A recorded stream.', body: 'meteor', canonical_url: 'https://openvibe.video/v/8011', facets: { duration_seconds: 60 } });
+        await put({ owner: 'live', type: 'vod', id: 'vod-meteor-long', title: 'Meteor pass', summary: 'A recorded stream.', body: 'meteor', canonical_url: 'https://openvibe.video/v/8012', facets: { duration_seconds: 7200 } });
         // Thin VODs, two of each title: the page keeps one.
         await put({ owner: 'live', type: 'vod', id: 'vod-omar-a', title: 'Omar', summary: 'Recorded live stream by omar on OpenVibe.Live.', canonical_url: 'https://openvibe.video/v/9003' });
         await put({ owner: 'live', type: 'vod', id: 'vod-omar-b', title: 'Omar', summary: 'Recorded live stream by omar on OpenVibe.Live.', canonical_url: 'https://openvibe.video/v/9004' });
@@ -71,8 +86,8 @@ t('a site query puts that site\'s own records first', async () => {
     const r = await request(svc.base, 'GET', '/api/v1/search?q=openvibe%20live&limit=10');
     assert.strictEqual(r.status, 200, r.text);
     const first = r.body.results[0];
-    assert.ok(['help-live-default', 'help-stream-obs', 'help-go-live', 'channel-arman'].includes(first.id), `first is a Live record: ${first.id}`);
-    const site = ['help-live-default', 'help-stream-obs', 'help-go-live', 'channel-arman'];
+    assert.ok(['help-live-default', 'help-stream-obs', 'help-go-live', 'channel-arman', 'channel-title'].includes(first.id), `first is a Live record: ${first.id}`);
+    const site = ['help-live-default', 'help-stream-obs', 'help-go-live', 'channel-arman', 'channel-title'];
     const lastSite = Math.max(...site.map((id) => indexOf(r, id)).filter((i) => i >= 0));
     const firstVod = Math.min(...['vod-omar-a', 'vod-seattle-a', 'vod-real'].map((id) => indexOf(r, id)).filter((i) => i >= 0));
     assert.ok(lastSite < firstVod, 'every Live record precedes the first VOD');
@@ -108,8 +123,24 @@ t('a thin username title loses the score tie to a real title and summary', async
     assert.strictEqual(isThin(real.doc), false);
 });
 
+t('equal VODs order by duration, the importance field the index holds', async () => {
+    const r = await request(svc.base, 'GET', '/api/v1/search?q=meteor&limit=10');
+    assert.deepStrictEqual(ids(r), ['vod-meteor-long', 'vod-meteor-short'], 'the longer recording first');
+});
+
+t('tied channels order by activity (live, then followers), then by updated_at', async () => {
+    const r = await request(svc.base, 'GET', '/api/v1/search?q=openvibe%20live&type=channel&limit=10');
+    assert.strictEqual(r.status, 200, r.text);
+    const order = ids(r);
+    assert.strictEqual(order[0], 'channel-title', 'a title match is still text first');
+    assert.ok(indexOf(r, 'channel-live') < indexOf(r, 'channel-fans'), 'a live channel before a followed one');
+    assert.ok(indexOf(r, 'channel-fans') < indexOf(r, 'channel-idle'), 'a followed channel before a followerless one');
+    // Equal signal (both 0): updated_at decides, not the published_at they share.
+    assert.ok(indexOf(r, 'channel-arman') < indexOf(r, 'channel-idle'), 'the newer channel first when the signal ties');
+});
+
 t('one page keeps one result per title and owner', async () => {
-    const r = await request(svc.base, 'GET', '/api/v1/search?q=openvibe%20live&limit=10');
+    const r = await request(svc.base, 'GET', '/api/v1/search?q=openvibe%20live&limit=20');
     const keys = r.body.results.map(dedupeKey);
     assert.strictEqual(new Set(keys).size, keys.length, 'no repeated title+owner');
     assert.strictEqual(r.body.results.filter((x) => x.title === 'Omar').length, 1);

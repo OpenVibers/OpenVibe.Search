@@ -47,7 +47,11 @@ There is no corpus to measure: no product indexes anything today.
   title/summary/body weights 10/4/1 times a freshness boost ([README "Ranking"](../README.md#ranking)),
   returned as minus the score so ascending keyset cursors work. The owner and type are not text
   fields, thin username-titled VODs sink inside a tier, and one page keeps one result per title and
-  owner.
+  owner. A score tie is broken by Live's activity (live now, then followers; a VOD's duration), then
+  by `documents.sort_at`, and the cursor carries that whole key. Channels are excluded from the thin
+  sink and a boilerplate-only channel match is tied inside its field tier, because the service
+  sentence matches every channel and a length-normalized `ts_rank` would otherwise reward the channel
+  with the least stream history.
 - Text is folded (diacritics removed) and split into runs of letters and digits before the
   `simple` configuration sees it, so tokens are predictable across languages (Japanese/Chinese get
   no word segmentation; a later engine or ICU tokenizer fixes that) and a query and the index

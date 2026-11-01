@@ -139,8 +139,11 @@ function docTier(doc, match, hosts = siteHosts(match)) {
  * A thin document: a username or a very short title with no real summary ("aaooo.ee", "Omar",
  * "Seattle Maybe 🤔" — a recorded stream whose summary is the site's sentence). It ranks below a
  * document with a real title and summary inside the same tier; the field and site tiers are unchanged.
+ * A Live channel is never thin: its title is the handle and its summary the service sentence, and
+ * Search orders channels by their activity signal instead (server/engine/pg.js).
  */
 function isThin(doc) {
+    if (doc && doc.type === 'channel') return false;
     const title = String((doc && doc.title) || '').trim();
     const summary = String((doc && doc.summary) || '').trim();
     if (!title) return true;
