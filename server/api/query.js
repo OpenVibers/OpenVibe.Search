@@ -29,6 +29,7 @@ const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
 const { fuseRrf } = require('../fabric/rrf');
 const { createQueryEmbeddingCache } = require('../fabric/embed');
+const { docTier, isThin, dedupeKey, siteHosts } = require('../ranking');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -162,6 +163,29 @@ async function dealsOrder(fused, { match, store }) {
         .map(({ hit }) => ({ ...hit, found: rows.get(hit.rid) }));
 }
 
+// ── A plain query's order (11-01) ──────────────────────────────────────────────────────────────
+// The keyword engine already ranks with the same tiers (server/engine/pg.js), but a hybrid page is
+// the RRF order of two top-100 lists, and a strong vector hit could still lift a summary-only VOD
+// above a help article whose title says what was asked. Re-apply the tiers to the fused list, so:
+//   - a query naming a site ("openvibe live") puts that site's own records first (site 10);
+//   - a title match (3) outranks a summary-only match (2), which outranks a body-only one (1);
+//   - a thin username-titled VOD ranks below a real title+summary inside the same tier.
+// The fused order is the final tie-break, so relevance still decides among equals.
+async function rankOrder(fused, { match, store }) {
+    if (!match || !match.words.length) return fused;
+    const hosts = siteHosts(match);
+    const rows = new Map();
+    for (const hit of fused) rows.set(hit.rid, hit.found !== undefined ? hit.found : await store.byRid(hit.rid));
+    return fused
+        .filter((hit) => rows.get(hit.rid))
+        .map((hit, i) => {
+            const found = rows.get(hit.rid);
+            return { hit, found, i, tier: docTier(found.doc, match, hosts), thin: isThin(found.doc) };
+        })
+        .sort((a, b) => b.tier - a.tier || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
+        .map(({ hit, found }) => ({ ...hit, found }));
+}
+
 /**
  * One search as a viewer: the query API, saved-search runs and the HTML page all go through here.
  *   run({ text, query, viewer, limit, cursor, facetKeys, now, since }) → { results, next_cursor, explain, facets? }
@@ -240,6 +264,7 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         }
 
         const results = [];
+        const seen = new Set();
         let next = null;
         let explain;
         let refNow = now;
@@ -249,6 +274,8 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
                 if (after && after.offset === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
                 if (after && after.now != null) refNow = after.now;
                 let fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
+                // A plain query's tiers: site first, then title > summary > body, thin VODs last within a tier.
+                fused = await rankOrder(fused, { match, store });
                 // Deals: the product the person asked for (its title or category) beats a description-only match.
                 if (filters.owner === 'deals') fused = await dealsOrder(fused, { match, store });
                 let consumed = after ? after.offset : 0;
@@ -260,6 +287,9 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
                     // Defence in depth: the vector store is public-only, the keyword SQL is ACL-aware.
                     const found = f.found !== undefined ? f.found : await store.byRid(f.rid);
                     if (!found || !canView(viewer, found.row, found.doc)) continue;
+                    const key = dedupeKey(found.doc);
+                    if (seen.has(key)) continue;
+                    seen.add(key);
                     results.push(projection(found.doc, found.row, f.snip, f.ranks));
                 }
                 if (consumed < fused.length) next = encodeCursor({ k: 'f', o: consumed, i: lastRid, n: refNow, h: hash });
@@ -274,6 +304,9 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
                     const found = await store.byRid(h.rid);
                     // Defence in depth: the engine already filtered; re-check against the stored row.
                     if (!found || !canView(viewer, found.row, found.doc)) continue;
+                    const key = dedupeKey(found.doc);
+                    if (seen.has(key)) continue;
+                    seen.add(key);
                     results.push(projection(found.doc, found.row, h.snip, { keyword: position, vector: null }));
                 }
                 next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash }) : null;

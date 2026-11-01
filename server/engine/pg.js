@@ -16,10 +16,13 @@
  * Text is folded before it is indexed or queried (NFKD, combining marks removed), split into runs of letters and
  * digits and tokenized by the `simple` configuration (lower case, no stemming, no stop words): the index and every
  * query see the same text. Title, summary and body weigh 10, 4 and 1 (tsvector weights A, B, C), with the freshness
- * boost described below. Every function here is async; put and remove run inside the store's
- * transaction (ambient). Nothing outside this file writes SQL against search_fts.
+ * boost described below. The owner and type are not text fields (a word that equals an owner is not a match), and a
+ * ranking tier puts a site's own records first, then title matches, then summary-only, then body-only ones
+ * (server/ranking.js). Every function here is async; put and remove run inside the store's transaction (ambient).
+ * Nothing outside this file writes SQL against search_fts.
  */
 const { EXPOSURE } = require('../document');
+const { fold, words, siteOnlyQuery, siteUrlPattern } = require('../ranking');
 
 const CONFIG = 'simple';
 const WEIGHTS = '{0.1, 0.1, 0.4, 1.0}';   // D, C body, B summary, A title: ts_rank weights 1 / 4 / 10
@@ -65,20 +68,6 @@ function freshnessBoost(iso, nowMs, halfLifeDays, weight) {
     if (!Number.isFinite(t)) return 1;
     const ageDays = Math.max(0, (nowMs - t) / DAY_MS);
     return 1 + weight * Math.pow(2, -ageDays / halfLifeDays);
-}
-
-/** Diacritics folded, so the index and every query see the same text. */
-function fold(s) {
-    return String(s || '').normalize('NFKD').replace(/\p{M}+/gu, '').normalize('NFC');
-}
-
-/**
- * Word tokens: runs of letters and digits, everything else a separator. PostgreSQL's parser would
- * keep "OpenVibe.Live", "a_b" or "3.5" as single tokens (host, word, number); separating them first
- * makes "openvibe" find "OpenVibe.Live".
- */
-function words(s) {
-    return fold(s).replace(/[^\p{L}\p{N}]+/gu, ' ');
 }
 
 function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) {
@@ -130,31 +119,66 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     }
 
     /**
-     * The visible, matching set as (rid, rank) rows. match = toMatch()'s query. rank is minus ts_rank times the
-     * freshness boost at reference time `now` (ms), so lower ranks first and pages of one query
-     * (which carry their first page's `now` in the cursor) rank against the same clock.
+     * The visible, matching set as (rid, rank) rows. match = toMatch()'s query. rank is minus the
+     * tier (site 10 + title 3 / summary 2 / body 1) and ts_rank times the freshness boost at
+     * reference time `now` (ms), so lower ranks first and pages of one query (which carry their
+     * first page's `now` in the cursor) rank against the same clock. The owner and type are not in
+     * the tsvector: a word that only equals an owner never matches. Rows whose owner and title are
+     * the same keep only the best-ranked one.
      */
     function matchedSet({ match, filters, viewer, now = Date.now() }, params) {
         params.match = tsquery(match);
         params.r_now = now;
         params.r_half = freshness.halfLifeDays;
         params.r_weight = freshness.weight;
+        params.site_re = siteUrlPattern(match) || '';
         const where = filterClause(filters, params);
-        const rank = `-(ts_rank('${WEIGHTS}'::float4[], f.tsv, to_tsquery('${CONFIG}', @match), 1)
+        const q = `to_tsquery('${CONFIG}', @match)`;
+        const base = `ts_rank('${WEIGHTS}'::float4[], f.tsv, ${q}, 1)
             * CASE WHEN f.fresh_at IS NULL OR @r_weight::float8 = 0 THEN 1
-                   ELSE 1 + @r_weight::float8 * power(2::float8, -(GREATEST(0, @r_now::bigint - f.fresh_at)::float8 / ${DAY_MS}) / @r_half::float8) END)`;
-        const branches = [`SELECT d.rid AS rid, ${rank} AS rank
+                   ELSE 1 + @r_weight::float8 * power(2::float8, -(GREATEST(0, @r_now::bigint - f.fresh_at)::float8 / ${DAY_MS}) / @r_half::float8) END`;
+        const title = `ts_rank('{0,0,0,1}'::float4[], f.tsv, ${q}, 0)`;
+        const summary = `ts_rank('{0,0,0.4,0}'::float4[], f.tsv, ${q}, 0)`;
+        const body = `ts_rank('{0,0.1,0,0}'::float4[], f.tsv, ${q}, 0)`;
+        const site = `(@site_re::text <> '' AND d.canonical_url ~* @site_re)`;
+        const field = `CASE WHEN ${title} > 0 THEN 3 WHEN ${summary} > 0 THEN 2 WHEN ${body} > 0 THEN 1 ELSE 0 END`;
+        const tier = `(CASE WHEN ${site} THEN 10 ELSE 0 END + ${field})`;
+        const thin = `(char_length(btrim(f.title)) <= 24 AND char_length(btrim(f.summary)) <= 80)`;
+        // Thin VODs sink below documents with a real title and summary inside the same tier; -2 is
+        // larger than any base score (ts_rank × freshness < 2), so it decides before relevance does.
+        const rank = `-(${tier} * 100 + (${base}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
+        const select = `SELECT d.rid AS rid, d.owner AS owner, f.title AS title, ${rank} AS rank`;
+        const branches = [`${select}
             FROM search_fts f JOIN documents d ON d.rid = f.rid
-            WHERE f.audience = ${EXPOSURE.public_listed} AND f.tsv @@ to_tsquery('${CONFIG}', @match)
+            WHERE f.audience = ${EXPOSURE.public_listed} AND f.tsv @@ ${q}
               AND d.exposure = ${EXPOSURE.public_listed} AND d.deleted = 0${where}`];
         const acl = aclClause(viewer, params);
         if (acl) {
-            branches.push(`SELECT d.rid AS rid, ${rank} AS rank
+            branches.push(`${select}
                 FROM search_fts f JOIN documents d ON d.rid = f.rid
-                WHERE f.audience = ${EXPOSURE.restricted} AND f.tsv @@ to_tsquery('${CONFIG}', @match)
+                WHERE f.audience = ${EXPOSURE.restricted} AND f.tsv @@ ${q}
                   AND d.exposure = ${EXPOSURE.restricted} AND d.deleted = 0${where} AND ${acl}`);
         }
-        return branches.join('\nUNION ALL\n');
+        // "openvibe live"/"openvibe tools": the site's own records are candidates even when their text
+        // does not repeat the site name (the Tools pages never do). They rank in the site tier below the
+        // site records that do match the words; the window dedupe folds a document that is in both sets.
+        if (params.site_re && siteOnlyQuery(match)) {
+            branches.push(`${select}
+                FROM search_fts f JOIN documents d ON d.rid = f.rid
+                WHERE f.audience = ${EXPOSURE.public_listed} AND d.canonical_url ~* @site_re
+                  AND d.exposure = ${EXPOSURE.public_listed} AND d.deleted = 0${where}`);
+            if (acl) {
+                branches.push(`${select}
+                    FROM search_fts f JOIN documents d ON d.rid = f.rid
+                    WHERE f.audience = ${EXPOSURE.restricted} AND d.canonical_url ~* @site_re
+                      AND d.exposure = ${EXPOSURE.restricted} AND d.deleted = 0${where} AND ${acl}`);
+            }
+        }
+        return `SELECT rid, rank FROM (
+            SELECT m.rid, m.rank,
+                   ROW_NUMBER() OVER (PARTITION BY m.owner, lower(btrim(m.title)) ORDER BY m.rank, m.rid) AS rn
+            FROM (${branches.join('\nUNION ALL\n')}) m
+        ) x WHERE x.rn = 1`;
     }
 
     /** The visible set without a text query (browse). */
