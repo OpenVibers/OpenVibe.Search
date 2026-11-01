@@ -119,12 +119,20 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     }
 
     /**
-     * The visible, matching set as (rid, rank) rows. match = toMatch()'s query. rank is minus the
-     * tier (site 10 + title 3 / summary 2 / body 1) and ts_rank times the freshness boost at
-     * reference time `now` (ms), so lower ranks first and pages of one query (which carry their
-     * first page's `now` in the cursor) rank against the same clock. The owner and type are not in
-     * the tsvector: a word that only equals an owner never matches. Rows whose owner and title are
+     * The visible, matching set as (rid, rank, importance, recency) rows. match = toMatch()'s query.
+     * rank is minus the tier (site 10 + title 3 / summary 2 / body 1) and ts_rank times the freshness
+     * boost at reference time `now` (ms), so lower ranks first and pages of one query (which carry
+     * their first page's `now` in the cursor) rank against the same clock. The owner and type are not
+     * in the tsvector: a word that only equals an owner never matches. Rows whose owner and title are
      * the same keep only the best-ranked one.
+     *
+     * A rank tie between records is broken by `importance`, then by `recency` (documents.sort_at =
+     * updated_at, else published_at). Only Live publishes a signal, in facets the index already holds:
+     * a live channel, then one with more followers (`followers`); for a VOD, its duration (Search is
+     * not sent views). Every channel in the index has streamed at least once, because Live only
+     * publishes a channel after its first stream. Other documents tie at importance 0, so their only
+     * new tie-break is recency. `recency` is empty when freshness (weight 0) is off, which keeps that
+     * mode's old index-order tie-break.
      */
     function matchedSet({ match, filters, viewer, now = Date.now() }, params) {
         params.match = tsquery(match);
@@ -143,11 +151,32 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
         const site = `(@site_re::text <> '' AND d.canonical_url ~* @site_re)`;
         const field = `CASE WHEN ${title} > 0 THEN 3 WHEN ${summary} > 0 THEN 2 WHEN ${body} > 0 THEN 1 ELSE 0 END`;
         const tier = `(CASE WHEN ${site} THEN 10 ELSE 0 END + ${field})`;
-        const thin = `(char_length(btrim(f.title)) <= 24 AND char_length(btrim(f.summary)) <= 80)`;
+        // A channel's title is its handle and its summary the service sentence; "thin" is normal for a
+        // channel, not a quality signal, so the thin sink stays for the documents it was written for.
+        const thin = `(d.type <> 'channel' AND char_length(btrim(f.title)) <= 24 AND char_length(btrim(f.summary)) <= 80)`;
+        // Every channel's summary is Live's one sentence, "<name> streams on OpenVibe.Live."; matching
+        // it says nothing about this channel. The body is the last stream titles, so the length-
+        // normalized ts_rank makes a busier channel score *lower*. Inside the field tier those channels
+        // are tied on relevance, and importance/recency decide. A channel whose title matches keeps
+        // its score: that is a real match.
+        const boilerplate = `(d.owner = 'live' AND d.type = 'channel' AND ${title} = 0 AND f.summary ~ ' streams on OpenVibe[.]Live[.]$')`;
+        const relevance = `CASE WHEN ${boilerplate} THEN 0 ELSE ${base} END`;
         // Thin VODs sink below documents with a real title and summary inside the same tier; -2 is
         // larger than any base score (ts_rank × freshness < 2), so it decides before relevance does.
-        const rank = `-(${tier} * 100 + (${base}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
-        const select = `SELECT d.rid AS rid, d.owner AS owner, f.title AS title, ${rank} AS rank`;
+        const rank = `-(${tier} * 100 + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
+        const facetNumber = (key) => `(SELECT x.value::float8 FROM doc_facets x
+            WHERE x.rid = d.rid AND x.key = '${key}' AND x.value ~ '^[0-9]+([.][0-9]+)?$'
+            ORDER BY x.value LIMIT 1)`;
+        const importance = `CASE
+            WHEN d.owner = 'live' AND d.type = 'channel' THEN
+                (CASE WHEN EXISTS (SELECT 1 FROM doc_facets x WHERE x.rid = d.rid AND x.key = 'live' AND x.value = 'true')
+                      THEN 1000000 ELSE 0 END)
+                + LEAST(COALESCE(${facetNumber('followers')}, 0), 999999)
+            WHEN d.owner = 'live' AND d.type = 'vod' THEN LEAST(COALESCE(${facetNumber('duration_seconds')}, 0), 999999)
+            ELSE 0 END`;
+        const recency = `CASE WHEN @r_weight::float8 = 0 THEN '' ELSE d.sort_at END`;
+        const select = `SELECT d.rid AS rid, d.owner AS owner, f.title AS title, ${rank} AS rank,
+            ${importance} AS importance, ${recency} AS recency`;
         const branches = [`${select}
             FROM search_fts f JOIN documents d ON d.rid = f.rid
             WHERE f.audience = ${EXPOSURE.public_listed} AND f.tsv @@ ${q}
@@ -174,9 +203,10 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
                       AND d.exposure = ${EXPOSURE.restricted} AND d.deleted = 0${where} AND ${acl}`);
             }
         }
-        return `SELECT rid, rank FROM (
-            SELECT m.rid, m.rank,
-                   ROW_NUMBER() OVER (PARTITION BY m.owner, lower(btrim(m.title)) ORDER BY m.rank, m.rid) AS rn
+        return `SELECT rid, rank, importance, recency FROM (
+            SELECT m.rid, m.rank, m.importance, m.recency,
+                   ROW_NUMBER() OVER (PARTITION BY m.owner, lower(btrim(m.title))
+                                      ORDER BY m.rank, m.importance DESC, m.recency DESC, m.rid) AS rn
             FROM (${branches.join('\nUNION ALL\n')}) m
         ) x WHERE x.rn = 1`;
     }
@@ -194,29 +224,35 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     // ── Queries ──────────────────────────────────────────────
 
     /**
-     * Ranked full-text search. after = { rank, rid } keyset cursor. The snippet is computed for the page's rows only:
-     * the summary and body when they match, else the title.
+     * Ranked full-text search. after = { rank, importance, recency, rid } keyset cursor. The snippet is
+     * computed for the page's rows only: the summary and body when they match, else the title.
      */
     async function search({ match, filters = {}, viewer, limit, after, now = Date.now() }) {
         const params = { limit: limit + 1 };
-        let sql = `SELECT rid, rank FROM (${matchedSet({ match, filters, viewer, now }, params)}) m`;
+        let sql = `SELECT rid, rank, importance, recency FROM (${matchedSet({ match, filters, viewer, now }, params)}) m`;
         if (after) {
-            sql += ' WHERE (rank > @c_rank::float8 OR (rank = @c_rank::float8 AND rid > @c_rid::bigint))';
+            sql += ` WHERE (rank > @c_rank::float8
+                OR (rank = @c_rank::float8 AND importance < @c_importance::float8)
+                OR (rank = @c_rank::float8 AND importance = @c_importance::float8 AND recency < @c_recency::text)
+                OR (rank = @c_rank::float8 AND importance = @c_importance::float8 AND recency = @c_recency::text AND rid > @c_rid::bigint))`;
             params.c_rank = after.rank;
+            params.c_importance = after.importance;
+            params.c_recency = after.recency;
             params.c_rid = after.rid;
         }
-        sql += ' ORDER BY rank, rid LIMIT @limit';
-        const page = `SELECT p.rid, p.rank,
+        sql += ' ORDER BY rank, importance DESC, recency DESC, rid LIMIT @limit';
+        const page = `SELECT p.rid, p.rank, p.importance, p.recency,
                 CASE WHEN to_tsvector('${CONFIG}', f.summary || ' ' || f.body) @@ to_tsquery('${CONFIG}', @match)
                      THEN ts_headline('${CONFIG}', f.summary || ' ' || f.body, to_tsquery('${CONFIG}', @match), @hl)
                      ELSE ts_headline('${CONFIG}', f.title, to_tsquery('${CONFIG}', @match), @hl) END AS snip
-            FROM (${sql}) p JOIN search_fts f ON f.rid = p.rid ORDER BY p.rank, p.rid`;
+            FROM (${sql}) p JOIN search_fts f ON f.rid = p.rid
+            ORDER BY p.rank, p.importance DESC, p.recency DESC, p.rid`;
         params.hl = HEADLINE;
         const rows = await db.prepare(page).all(params);
         const more = rows.length > limit;
         const hits = rows.slice(0, limit);
         const last = hits[hits.length - 1];
-        return { hits, next: more && last ? { rank: last.rank, rid: last.rid } : null };
+        return { hits, next: more && last ? { rank: last.rank, importance: last.importance, recency: last.recency, rid: last.rid } : null };
     }
 
     /** Newest first, no text query. after = { sort_at, rid }. */
@@ -255,7 +291,8 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     /** Title prefix suggestions over the visible set. */
     async function suggest({ match, filters = {}, viewer, limit }) {
         const params = { limit };
-        return await db.prepare(`SELECT rid, rank FROM (${matchedSet({ match, filters, viewer }, params)}) m ORDER BY rank, rid LIMIT @limit`).all(params);
+        return await db.prepare(`SELECT rid, rank FROM (${matchedSet({ match, filters, viewer }, params)}) m
+            ORDER BY rank, importance DESC, recency DESC, rid LIMIT @limit`).all(params);
     }
 
     async function counts() {

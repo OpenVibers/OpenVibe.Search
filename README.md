@@ -116,6 +116,17 @@ a summary-only match outranks a body-only one. Within a tier, a thin document (a
 title with no real summary: the recorded-stream VODs) ranks below one with a real title and summary, and
 one page keeps one result per title and owner.
 
+A tie in `score` is broken by Live's activity, then by recency (`documents.sort_at`, i.e. `updated_at`,
+else `published_at`): a channel that is live now comes before one that is not, a channel with more
+followers before one with fewer, and a VOD with a longer duration before a shorter one (Search is not
+sent views). A channel is never "thin": its handle title and service summary are normal, so the thin
+sink stays for the VODs it was written for. A Live channel whose only match is the service sentence
+"<name> streams on OpenVibe.Live." is tied with every other such channel inside its field tier: the
+sentence matches all of them, and the length-normalized `ts_rank` would otherwise rank a busier channel
+lower because its body holds more past stream titles. A channel whose *title* matches still comes first,
+like any other title match. Only Live publishes an activity signal; for other owners the tie-break is
+just recency. `test/ranking.test.js` seeds tied channels for both rules.
+
 `age_days` counts from `published_at`, else `updated_at` (an edit does not make an old document
 new); a future date counts as today and a missing one gets no boost. With the defaults a document
 published today counts ×2.0, 30 days old ×1.5, 60 days ×1.25, 90 days ×1.125 and a year old ×1.0002:

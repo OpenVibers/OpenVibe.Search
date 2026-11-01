@@ -81,7 +81,10 @@ function decodeCursor(s, hash) {
     // f: a hybrid page is an offset into the fused list (the keyword and vector ranks are recomputed for
     // each page, so the fused order is stable; `i` carries the last rid for the shared cursor shape).
     if (c.k === 'f' && Number.isInteger(c.o) && c.o >= 0) return { offset: c.o, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
-    if (c.k === 'r' && typeof c.r === 'number') return { rank: c.r, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
+    // A keyword page cursor carries the whole sort key: rank, importance, recency, rid.
+    if (c.k === 'r' && typeof c.r === 'number' && typeof c.m === 'number' && typeof c.s === 'string') {
+        return { rank: c.r, importance: c.m, recency: c.s, rid: c.i, now: Number.isFinite(c.n) ? c.n : null };
+    }
     if (c.k === 't' && typeof c.t === 'string') return { sort_at: c.t, rid: c.i };
     throw new QueryError('search.bad_cursor', 'cursor is malformed');
 }
@@ -198,7 +201,7 @@ async function rankOrder(fused, { match, store }) {
  * reciprocal rank fusion (k = 60). The keyword list still supplies snippets, filters, facet counts and
  * the ACL: the vector list is public-only, and every fused hit is re-checked by canView. When vectors
  * are not available, AI fails or the query is too short, the answer is exactly today's keyword page and
- * `explain` says which reason applied. Keyword paging keeps its rank/rid cursor; a hybrid page carries
+ * `explain` says which reason applied. Keyword paging keeps its rank/importance/recency/rid cursor; a hybrid page carries
  * an offset into the fused list. `ranks` on each hit are 1-based positions in the two lists (null when
  * the hit is absent from one).
  */
@@ -309,7 +312,7 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
                     seen.add(key);
                     results.push(projection(found.doc, found.row, h.snip, { keyword: position, vector: null }));
                 }
-                next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, i: page.next.rid, n: refNow, h: hash }) : null;
+                next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, m: page.next.importance, s: page.next.recency, i: page.next.rid, n: refNow, h: hash }) : null;
                 explain = { ranking: 'keyword', reason: state.reason };
             }
         } else {
