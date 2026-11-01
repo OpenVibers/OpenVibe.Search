@@ -404,7 +404,9 @@ li a.t { color: var(--accent); font-size: 1.05rem; text-decoration: none; }
 li a.t:hover { text-decoration: underline; }
 .meta { color: var(--muted); font-size: .85rem; }
 .snip { margin: 4px 0 0; }
-mark { background: var(--mark); color: inherit; }
+/* The match highlight follows the reader's theme, not the device's dark mode: --mark came from prefers-color-scheme, so
+   Daylight on a dark-mode phone drew dark olive behind dark text (2026-11-01). A translucent yellow reads on both. */
+mark { background: color-mix(in srgb, #facc15 40%, transparent); color: inherit; border-radius: 2px; }
 .empty, .note { color: var(--muted); }
 .more { display: inline-block; margin-top: 16px; color: var(--accent); }
 .page-note { margin-top: 40px; color: var(--muted); font-size: .85rem; }
