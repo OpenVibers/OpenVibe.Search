@@ -315,9 +315,37 @@ t('deals: a title or category match outranks a description-only match (11-01)', 
         assert.deepStrictEqual(r.body.results.find((x) => x.id === 'k2').ranks, { keyword: 1, vector: null });
         assert.deepStrictEqual(r.body.results.find((x) => x.id === 'bit-blaster').ranks, { keyword: 2, vector: 1 });
 
-        // The order is only the deals owner's: the same two documents unowned keep the fused order.
+        // The title tier is not deals-only: across owners, the keyboard's title match now outranks the
+        // game's summary-only match too (the deals category rule still covers a category-only match).
         const all = await request(svc.base, 'GET', '/api/v1/search?q=mechanical%20keyboard&limit=10');
-        assert.deepStrictEqual(all.body.results.map((x) => x.id), ['bit-blaster', 'k2'], 'other owners stay on RRF');
+        assert.deepStrictEqual(all.body.results.map((x) => x.id), ['k2', 'bit-blaster'], 'title match first outside deals too');
+    } finally {
+        await svc.stop();
+    }
+});
+
+t('ranking: a site query and title tier survive RRF, and a page keeps one title per owner', async () => {
+    const vectors = new FakeVectors();
+    const embeddings = fakeEmbeddings();
+    const svc = await boot({ vectorStore: vectors, embeddingClient: embeddings });
+    try {
+        await svc.store.apply(doc({ owner: 'help', type: 'article', id: 'live-help', title: 'Is OpenVibe Live on by default?', summary: 'Yes. Every channel streams with OpenVibe.Live on by default.', canonical_url: 'https://openvibe.help/a/openre.stream/is-openvibe-live-on-by-default' }));
+        await svc.store.apply(doc({ owner: 'community', type: 'thread', id: 'live-thread', title: 'OpenVibe live thread', summary: 'A discussion about going live.', canonical_url: 'https://openvibe.community/s/roadmap/t/live-thread' }));
+        await svc.store.apply(doc({ owner: 'live', type: 'vod', id: 'vod-a', title: 'Omar', summary: 'Recorded live stream by omar on OpenVibe.Live.', canonical_url: 'https://openvibe.video/v/1' }));
+        await svc.store.apply(doc({ owner: 'live', type: 'vod', id: 'vod-b', title: 'Omar', summary: 'Recorded live stream by omar on OpenVibe.Live.', canonical_url: 'https://openvibe.video/v/2' }));
+        const rid = await ridMap(svc.db);
+        // The vector side likes the thin VODs and the thread; the site record has no vector hit at all.
+        vectors.hits = [
+            { rid: rid['vod-a'], distance: 0.1 },
+            { rid: rid['vod-b'], distance: 0.11 },
+            { rid: rid['live-thread'], distance: 0.12 },
+        ];
+
+        const r = await request(svc.base, 'GET', '/api/v1/search?q=openvibe%20live&limit=10');
+        assert.strictEqual(r.status, 200, r.text);
+        assert.deepStrictEqual(r.body.explain, { ranking: 'hybrid' });
+        assert.deepStrictEqual(r.body.results.map((x) => x.id), ['live-help', 'live-thread', 'vod-a'], 'site first, title before summary, one Omar');
+        assert.strictEqual(r.body.results.filter((x) => x.title === 'Omar').length, 1);
     } finally {
         await svc.stop();
     }

@@ -98,21 +98,32 @@ an empty shelf is left out, and without the numbers the sources fall back to the
 
 ### Ranking
 
-Full-text results are ordered by full-text relevance (title ×10, summary ×4, body ×1) multiplied by a
-freshness boost:
+Full-text results are ordered by a tier first, then full-text relevance (title ×10, summary ×4, body ×1)
+multiplied by a freshness boost:
 
 ```
-score = relevance × (1 + W × 2^(−age_days / H))   W = SEARCH_FRESHNESS_WEIGHT (default 1)
+tier  = site × 10 + field       field: title 3 > summary 2 > body 1
+score = tier × 100 + relevance × (1 + W × 2^(−age_days / H))
+                                                  W = SEARCH_FRESHNESS_WEIGHT (default 1)
                                                   H = SEARCH_FRESHNESS_HALF_LIFE_DAYS (default 30)
 ```
+
+A query naming a site ("openvibe live", "openvibe tools") puts that site's own records first: the site is
+the host `openvibe.<word>` (subdomains too) or a help article under `/a/<host>/`, with Live's old
+`openre.stream` name included. A word that matches a document's owner or type is not a text match (the
+`owner=` filter is how an owner narrows a search), a title match always outranks a summary-only match, and
+a summary-only match outranks a body-only one. Within a tier, a thin document (a username or a very short
+title with no real summary: the recorded-stream VODs) ranks below one with a real title and summary, and
+one page keeps one result per title and owner.
 
 `age_days` counts from `published_at`, else `updated_at` (an edit does not make an old document
 new); a future date counts as today and a missing one gets no boost. With the defaults a document
 published today counts ×2.0, 30 days old ×1.5, 60 days ×1.25, 90 days ×1.125 and a year old ×1.0002:
 relevance still decides, and between comparably relevant documents the newer one ranks first.
 `W = 0` turns it off. Suggestions use the same score; browsing without `q` stays newest first. A
-cursor carries its first page's clock, so later pages rank on the same scores
-(`test/freshness.test.js`).
+cursor carries its first page's clock, so later pages rank on the same scores. The hybrid path fuses the
+keyword and vector top 100 by RRF and then applies the same tiers to the fused list
+(`test/freshness.test.js`, `test/ranking.test.js`).
 
 ### Saved searches
 

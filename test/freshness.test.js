@@ -29,11 +29,12 @@ t('the decay: ×(1+w) today, ×(1+w/2) one half-life ago, → ×1 when old; futu
 async function corpus(env = {}) {
     let clock = NOW;
     const svc = await boot({ env, now: () => clock });
-    // Same text, same length: bm25 ties, so only freshness separates them. The old one is indexed
-    // first (lower rid), so without freshness it would come first.
-    await svc.store.apply(doc({ id: 'old', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(400), updated_at: daysAgo(400) }));
-    await svc.store.apply(doc({ id: 'mid', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(20), updated_at: daysAgo(20) }));
-    await svc.store.apply(doc({ id: 'new', title: 'Aurora report', body: 'aurora seen tonight', published_at: daysAgo(1), updated_at: daysAgo(1) }));
+    // Same query term, same length: bm25 ties, so only freshness separates them. Distinct titles keep
+    // the page's same-title dedupe from folding them into one. The old one is indexed first (lower
+    // rid), so without freshness it would come first.
+    await svc.store.apply(doc({ id: 'old', title: 'Aurora report old', body: 'aurora seen tonight', published_at: daysAgo(400), updated_at: daysAgo(400) }));
+    await svc.store.apply(doc({ id: 'mid', title: 'Aurora report mid', body: 'aurora seen tonight', published_at: daysAgo(20), updated_at: daysAgo(20) }));
+    await svc.store.apply(doc({ id: 'new', title: 'Aurora report new', body: 'aurora seen tonight', published_at: daysAgo(1), updated_at: daysAgo(1) }));
     return { svc, setClock: (c) => { clock = c; } };
 }
 

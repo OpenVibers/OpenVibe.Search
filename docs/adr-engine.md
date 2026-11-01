@@ -43,9 +43,11 @@ There is no corpus to measure: no product indexes anything today.
 
 - One database: backups, restores and moves are the same as every other service (PostgreSQL,
   ADR-035).
-- Ranking is `ts_rank` with title/summary/body weights 10/4/1 times a freshness boost
-  ([README "Ranking"](../README.md#ranking)), returned as minus the score so ascending keyset
-  cursors work.
+- Ranking is a tier (site 10 + title 3 / summary 2 / body 1) ahead of `ts_rank` with
+  title/summary/body weights 10/4/1 times a freshness boost ([README "Ranking"](../README.md#ranking)),
+  returned as minus the score so ascending keyset cursors work. The owner and type are not text
+  fields, thin username-titled VODs sink inside a tier, and one page keeps one result per title and
+  owner.
 - Text is folded (diacritics removed) and split into runs of letters and digits before the
   `simple` configuration sees it, so tokens are predictable across languages (Japanese/Chinese get
   no word segmentation; a later engine or ICU tokenizer fixes that) and a query and the index
