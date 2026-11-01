@@ -453,6 +453,40 @@ ${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p cla
     }).join('\n')}</ol>`;
 }
 
+// The page a browser gets for a path nothing serves: the site's own Frame, a way back, and no clue
+// about what was asked for. An API client keeps the problem document (server/app.js).
+function renderNotFound({ origin }) {
+    const host = String(origin).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    return shell.page({
+        ...FRAME,
+        title: `Page not found · ${SITE_NAME}`,
+        description: `There is no page at this address on ${host}.`,
+        robots: 'noindex, nofollow',
+        head: [
+            '<meta name="color-scheme" content="light dark">',
+            ICON_LINKS,
+            `<link rel="stylesheet" href="${ovServe.url(showcase.STYLESHEET)}">`,
+            `<script>${FOOTER_INIT}</script>`,
+            `<style>
+body{margin:0;background:var(--bg-primary,#fff);color:var(--text-primary,#1a1a1a);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:48px 16px 64px}
+h1{font-size:1.5rem;margin:0 0 8px}
+p{color:var(--text-secondary,#5c5c66);margin:0 0 22px}
+.nf-links{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:10px}
+</style>`,
+        ].join('\n'),
+        body: `<div id="navbar-mount"></div>
+<main id="main">
+<h1>Page not found</h1>
+<p>There is no page at this address on ${esc(host)}. The link may be old or mistyped.</p>
+<ul class="nf-links">
+<li><a class="sc-btn sc-primary" href="/">${SITE_NAME} home</a></li>
+<li><a class="sc-btn" href="/updates">What shipped</a></li>
+</ul>
+</main>`,
+    });
+}
+
 /** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates.
  *  newestPublic() reads the newest content time among the public indexable documents (the sitemap's real
  *  lastmod); releasedAt is the deployed release's date (/updates' lastmod). */
@@ -563,6 +597,19 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         const twinCanonical = `${origin}/${twinParams.toString() ? `?${twinParams.toString()}` : ''}`;
         res.setHeader('Link', seo.linkHeaderTags(twinCanonical, `${origin}/llms.txt`).header);
         res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '', heroAside: isFront ? front.statList : '' }));
+    });
+
+    // A browser asking for a page nothing serves gets the site's own 404 page; an API path, another
+    // method or a client that does not accept HTML keeps the problem document (server/app.js).
+    router.use((req, res, next) => {
+        if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return next();
+        if (req.method !== 'GET' || req.accepts(['application/json', 'text/html']) !== 'text/html') return next();
+        res.status(404);
+        res.setHeader('Content-Security-Policy', CSP);
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        return res.type('html').send(renderNotFound({ origin }));
     });
 
     return router;
