@@ -29,7 +29,7 @@ const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
 const { fuseRrf } = require('../fabric/rrf');
 const { createQueryEmbeddingCache } = require('../fabric/embed');
-const { docTier, isThin, dedupeKey, siteHosts, isQuestion, questionMatch, contentWords, coverage } = require('../ranking');
+const { docTier, isThin, dedupeKey, siteHosts, isQuestion, questionMatch, contentWords, coverage, titleWords } = require('../ranking');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -197,10 +197,10 @@ async function rankOrder(fused, { match, store }) {
         .filter((hit) => rows.get(hit.rid))
         .map((hit, i) => {
             const found = rows.get(hit.rid);
-            return { hit, found, i, cover: coverage(found.doc, match), tier: docTier(found.doc, match, hosts), thin: isThin(found.doc), answer: ask && isAnswer(found.doc) ? 1 : 0 };
+            return { hit, found, i, cover: coverage(found.doc, match), tier: docTier(found.doc, match, hosts), words: match.words.length > 1 ? titleWords(found.doc, match) : 0, thin: isThin(found.doc), answer: ask && isAnswer(found.doc) ? 1 : 0 };
         })
         // A relaxed query: how much of it a document holds comes first (rare words weigh more), as in the engine.
-        .sort((a, b) => b.cover - a.cover || b.tier - a.tier || b.answer - a.answer || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
+        .sort((a, b) => b.cover - a.cover || b.tier - a.tier || b.answer - a.answer || b.words - a.words || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
         .map(({ hit, found }) => ({ ...hit, found }));
 }
 

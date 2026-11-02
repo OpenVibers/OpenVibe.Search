@@ -22,7 +22,7 @@
  * Nothing outside this file writes SQL against search_fts.
  */
 const { EXPOSURE } = require('../document');
-const { fold, words, siteOnlyQuery, siteUrlPattern, isQuestion, FIELD_FACTORS } = require('../ranking');
+const { fold, words, siteOnlyQuery, siteUrlPattern, isQuestion, FIELD_FACTORS, TITLE_WORDS_MAX } = require('../ranking');
 const FIELD = Object.fromEntries(FIELD_FACTORS);
 
 const CONFIG = 'simple';
@@ -179,7 +179,13 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
                          WHEN f.tsv @@ to_tsquery('${CONFIG}', @cwb_${i}) THEN ${wt * FIELD.summary}
                          WHEN f.tsv @@ to_tsquery('${CONFIG}', @cw_${i}) THEN ${wt * FIELD.body} ELSE 0 END`;
         }).join(' + ')})::numeric, 1)::float8` : '0';
-        const rank = `-(${cover} * 10000 + ${tier} * 100 + ${answer} + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
+        // Inside a tier, a title holding more of the query's words first (ranking.js titleWords): 10 a word, at most
+        // TITLE_WORDS_MAX, under a question's 50 and over relevance (< 2).
+        const titleCount = match.words.length > 1 ? `LEAST(${TITLE_WORDS_MAX}, ${match.words.map((_, i) => {
+            params[`tw_${i}`] = tsTerm(match, i, 'A');
+            return `(CASE WHEN f.tsv @@ to_tsquery('${CONFIG}', @tw_${i}) THEN 1 ELSE 0 END)`;
+        }).join(' + ')})` : '0';
+        const rank = `-(${cover} * 10000 + ${tier} * 100 + ${answer} + ${titleCount} * 10 + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
         const facetNumber = (key) => `(SELECT x.value::float8 FROM doc_facets x
             WHERE x.rid = d.rid AND x.key = '${key}' AND x.value ~ '^[0-9]+([.][0-9]+)?$'
             ORDER BY x.value LIMIT 1)`;
