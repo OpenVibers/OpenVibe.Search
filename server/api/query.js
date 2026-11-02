@@ -184,18 +184,26 @@ async function dealsOrder(fused, { match, store }) {
 //   - a title match (3) outranks a summary-only match (2), which outranks a body-only one (1);
 //   - a thin username-titled VOD ranks below a real title+summary inside the same tier.
 // The fused order is the final tie-break, so relevance still decides among equals.
+// A question ("how do I stream", "can I go live without OBS") wants an answer: inside its tier, an article (Help's
+// answers, a site's docs) comes before a recording or a post that only shares a word (2026-11-02: "how do I stream"
+// ranked four VODs titled "… Stream" above Help's "Can I stream without OBS?").
+const QUESTION_WORDS = new Set(['how', 'what', 'why', 'when', 'where', 'which', 'who', 'can', 'do', 'does', 'is', 'are', 'should', 'will']);
+const isQuestion = (match) => Boolean(match && match.words.length >= 2 && QUESTION_WORDS.has(match.words[0]));
+const isAnswer = (doc) => Boolean(doc && doc.type === 'article');
+
 async function rankOrder(fused, { match, store }) {
     if (!match || !match.words.length) return fused;
     const hosts = siteHosts(match);
+    const ask = isQuestion(match);
     const rows = new Map();
     for (const hit of fused) rows.set(hit.rid, hit.found !== undefined ? hit.found : await store.byRid(hit.rid));
     return fused
         .filter((hit) => rows.get(hit.rid))
         .map((hit, i) => {
             const found = rows.get(hit.rid);
-            return { hit, found, i, tier: docTier(found.doc, match, hosts), thin: isThin(found.doc) };
+            return { hit, found, i, tier: docTier(found.doc, match, hosts), thin: isThin(found.doc), answer: ask && isAnswer(found.doc) ? 1 : 0 };
         })
-        .sort((a, b) => b.tier - a.tier || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
+        .sort((a, b) => b.tier - a.tier || b.answer - a.answer || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
         .map(({ hit, found }) => ({ ...hit, found }));
 }
 
@@ -457,4 +465,4 @@ function queryRouter({ config, store, engine, auth, limits, vectorStore = null, 
     return router;
 }
 
-module.exports = { queryRouter, createSearcher, withViewer, parseFilters, QueryError, canView, projection, toMatch, one, fuseRrf };
+module.exports = { queryRouter, createSearcher, withViewer, parseFilters, QueryError, canView, projection, toMatch, one, fuseRrf, rankOrder, isQuestion };
