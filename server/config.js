@@ -50,6 +50,8 @@ const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupo
     // Record products (openvibe-publishing/search-feed, contracts 0.128.0): job listings, rental listings, help
     // articles, item definitions and quests; the hosting catalog's plans and providers (contracts 0.145.0).
     'work', 'rent', 'help', 'inventory', 'quest', 'host',
+    // open.shoes' model pages (contracts 0.273.0): every store's price for one shoe.
+    'shoes',
     // Owner-API writers listed so their front-page card and ?owner= filter exist: OpenVibe.Video's uploads (MediaHub,
     // service id media-hub; an event type has no hyphen), OpenVibe.Food's checked recipes and OpenVibe.Bot's model pages.
     'media-hub', 'food', 'bot'];
