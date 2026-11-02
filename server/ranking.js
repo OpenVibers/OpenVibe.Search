@@ -180,8 +180,41 @@ function questionMatch(match) {
     return content.length ? { ...match, words: content, prefix: match.prefix && content[content.length - 1] === match.words[match.words.length - 1], question: true } : match;
 }
 
+/**
+ * The words a relaxed (any-word) query keeps: its content words when it has any. "things to do chongqing" found the
+ * city page with every word, and fewer than five documents did, so the relaxed answer took any word: "do" alone put
+ * seven "Do I need…?" help articles above Chongqing (production, 2026-11-02).
+ */
+function contentWords(match) {
+    if (!match || !Array.isArray(match.words)) return match;
+    const content = match.words.filter((w) => !FUNCTION_WORDS.has(w));
+    if (!content.length || content.length === match.words.length) return match;
+    return { ...match, words: content, prefix: Boolean(match.prefix && content[content.length - 1] === match.words[match.words.length - 1]) };
+}
+
+// Where a relaxed query's word is found counts too: in the title fully, in the summary 0.6, only in the body 0.3.
+const FIELD_FACTORS = [['title', 1], ['summary', 0.6], ['body', 0.3]];
+
+/**
+ * How much of a relaxed query a document holds: for each query word, its weight (match.weights, the engine's
+ * wordWeights: a rare word weighs more than a common one) times the factor of the best field holding it, summed and
+ * kept to one decimal so near-equal covers tie and the field tiers decide. 0 for a query that is not relaxed or has
+ * no weights. The engine ranks with the same sum (server/engine/pg.js).
+ */
+function coverage(doc, match) {
+    if (!doc || !match || !match.any || !match.weights) return 0;
+    const fields = FIELD_FACTORS.map(([name, factor]) => [new Set(tokens(doc[name])), factor]);
+    let sum = 0;
+    match.words.forEach((word, i) => {
+        const prefix = Boolean(match.prefix && i === match.words.length - 1);
+        const hit = fields.find(([ts]) => ts.has(word) || (prefix && [...ts].some((t) => t.startsWith(word))));
+        if (hit) sum += (Number(match.weights[word]) || 0) * hit[1];
+    });
+    return Math.round(sum * 10) / 10;
+}
+
 module.exports = {
-    isQuestion, questionMatch,
+    isQuestion, questionMatch, contentWords, coverage, FIELD_FACTORS,
     SITE_ALIASES, fold, words, tokens, siteHosts, siteOnlyQuery, siteUrlPattern, urlBelongsToSites,
     textMatches, fieldTier, docTier, isThin, dedupeKey,
 };

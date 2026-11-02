@@ -29,7 +29,7 @@ const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
 const { fuseRrf } = require('../fabric/rrf');
 const { createQueryEmbeddingCache } = require('../fabric/embed');
-const { docTier, isThin, dedupeKey, siteHosts, isQuestion, questionMatch } = require('../ranking');
+const { docTier, isThin, dedupeKey, siteHosts, isQuestion, questionMatch, contentWords, coverage } = require('../ranking');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -197,9 +197,10 @@ async function rankOrder(fused, { match, store }) {
         .filter((hit) => rows.get(hit.rid))
         .map((hit, i) => {
             const found = rows.get(hit.rid);
-            return { hit, found, i, tier: docTier(found.doc, match, hosts), thin: isThin(found.doc), answer: ask && isAnswer(found.doc) ? 1 : 0 };
+            return { hit, found, i, cover: coverage(found.doc, match), tier: docTier(found.doc, match, hosts), thin: isThin(found.doc), answer: ask && isAnswer(found.doc) ? 1 : 0 };
         })
-        .sort((a, b) => b.tier - a.tier || b.answer - a.answer || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
+        // A relaxed query: how much of it a document holds comes first (rare words weigh more), as in the engine.
+        .sort((a, b) => b.cover - a.cover || b.tier - a.tier || b.answer - a.answer || (a.thin === b.thin ? 0 : a.thin ? 1 : -1) || a.i - b.i)
         .map(({ hit, found }) => ({ ...hit, found }));
 }
 
@@ -323,7 +324,8 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         const trimmed = text.trim();
         // A question matches on its content words (ranking.js questionMatch) and keeps its answer-first order.
         const exact = trimmed ? questionMatch(toMatch(text, { maxTerms: config.query.maxTerms })) : null;
-        const relaxedMatch = exact && exact.words.length > 1 ? { ...exact, any: true } : null;
+        // Relaxed, a query keeps its content words: "to" or "do" alone matches everything (ranking.js contentWords).
+        const relaxedMatch = exact && exact.words.length > 1 ? { ...contentWords(exact), any: true } : null;
         // A later page of a relaxed answer says so in its cursor (x), and continues that query.
         const relaxedCursor = Boolean(relaxedMatch && cursor && cursorFlag(cursor, 'x'));
         const match = relaxedCursor ? relaxedMatch : exact;
@@ -342,12 +344,15 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         let next = null;
         let explain;
         let used = match;
+        // A relaxed match carries its words' weights (engine wordWeights), added after the cursor hash: they follow the
+        // index, and a later page must still belong to the same query.
+        const weighted = async (m) => (m && m.any && typeof engine.wordWeights === 'function' ? { ...m, weights: await engine.wordWeights(m) } : m);
         if (match) {
             const state = await semanticState(trimmed);
-            let page = await matchedPage({ match, hash, after, state, filters, viewer, limit, now, relaxed: relaxedCursor });
+            let page = await matchedPage({ match: relaxedCursor ? await weighted(match) : match, hash, after, state, filters, viewer, limit, now, relaxed: relaxedCursor });
             // The first page of several words that found little: every document with any of the words instead.
             if (!cursor && relaxedMatch && !relaxedCursor && page.results.length < RELAX_BELOW) {
-                const loose = await matchedPage({ match: relaxedMatch, hash: queryHash([relaxedMatch, filters]), after: null, state, filters, viewer, limit, now, relaxed: true });
+                const loose = await matchedPage({ match: await weighted(relaxedMatch), hash: queryHash([relaxedMatch, filters]), after: null, state, filters, viewer, limit, now, relaxed: true });
                 if (loose.results.length > page.results.length) { page = loose; used = relaxedMatch; }
             }
             ({ results, next, explain } = page);

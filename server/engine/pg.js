@@ -22,7 +22,8 @@
  * Nothing outside this file writes SQL against search_fts.
  */
 const { EXPOSURE } = require('../document');
-const { fold, words, siteOnlyQuery, siteUrlPattern, isQuestion } = require('../ranking');
+const { fold, words, siteOnlyQuery, siteUrlPattern, isQuestion, FIELD_FACTORS } = require('../ranking');
+const FIELD = Object.fromEntries(FIELD_FACTORS);
 
 const CONFIG = 'simple';
 const WEIGHTS = '{0.1, 0.1, 0.4, 1.0}';   // D, C body, B summary, A title: ts_rank weights 1 / 4 / 10
@@ -166,7 +167,19 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
         // A question lifts an article half a tier: above the recordings that share its tier, below the next tier up,
         // so it is among the candidates the page ranks (ranking.js isQuestion).
         const answer = isQuestion(match) ? `CASE WHEN d.type = 'article' THEN 50 ELSE 0 END` : '0';
-        const rank = `-(${tier} * 100 + ${answer} + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
+        // A relaxed query ranks by how much of it a document holds before the field tiers: the summed weights of
+        // its words in the document (rare words weigh more), to one decimal (ranking.js coverage does the same).
+        // Each word counts in its best field: the title (A) fully, the summary (B) 0.6, the body 0.3 (FIELD_FACTORS).
+        const cover = match.any && match.weights ? `ROUND((${match.words.map((w, i) => {
+            const wt = Number(match.weights[w]) || 0;
+            params[`cwa_${i}`] = tsTerm(match, i, 'A');
+            params[`cwb_${i}`] = tsTerm(match, i, 'B');
+            params[`cw_${i}`] = tsTerm(match, i);
+            return `CASE WHEN f.tsv @@ to_tsquery('${CONFIG}', @cwa_${i}) THEN ${wt * FIELD.title}
+                         WHEN f.tsv @@ to_tsquery('${CONFIG}', @cwb_${i}) THEN ${wt * FIELD.summary}
+                         WHEN f.tsv @@ to_tsquery('${CONFIG}', @cw_${i}) THEN ${wt * FIELD.body} ELSE 0 END`;
+        }).join(' + ')})::numeric, 1)::float8` : '0';
+        const rank = `-(${cover} * 10000 + ${tier} * 100 + ${answer} + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
         const facetNumber = (key) => `(SELECT x.value::float8 FROM doc_facets x
             WHERE x.rid = d.rid AND x.key = '${key}' AND x.value ~ '^[0-9]+([.][0-9]+)?$'
             ORDER BY x.value LIMIT 1)`;
@@ -225,6 +238,17 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
     }
 
     // ── Queries ──────────────────────────────────────────────
+
+    /** { word: weight } for a relaxed query's words (wordWeight of each word's bounded public document frequency). */
+    async function wordWeights(match) {
+        const out = {};
+        for (let i = 0; i < match.words.length; i++) {
+            const row = await db.prepare(`SELECT COUNT(*)::int AS n FROM (SELECT 1 FROM search_fts f
+                WHERE f.audience = ${EXPOSURE.public_listed} AND f.tsv @@ to_tsquery('${CONFIG}', @q) LIMIT ${DF_CAP}) x`).get({ q: tsTerm(match, i) });
+            out[match.words[i]] = wordWeight(row ? row.n : 0);
+        }
+        return out;
+    }
 
     /**
      * Ranked full-text search. after = { rank, importance, recency, rid } keyset cursor. The snippet is
@@ -327,7 +351,18 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
         return { rebuilt };
     }
 
-    return { name: 'postgresql-fts', put, remove, search, browse, facetCounts, suggest, counts, reconcile, freshness };
+    return { name: 'postgresql-fts', put, remove, search, browse, facetCounts, suggest, counts, reconcile, freshness, wordWeights };
+}
+
+// ── Relaxed queries: how much a word says ────────────────────
+
+// A word's document frequency is counted up to DF_CAP public documents (a bounded index scan); its weight is
+// ln(1 + DF_SCALE / (1 + df)), so a place or brand name in 30 documents (5.8) outweighs "walk" or "things" in a
+// thousand (2.4). Only the relaxed (any-word) answer uses it.
+const DF_CAP = 1000;
+const DF_SCALE = 10000;
+function wordWeight(df) {
+    return Math.round(Math.log(1 + DF_SCALE / (1 + Math.max(0, Number(df) || 0))) * 100) / 100;
 }
 
 // ── Query text → tsquery ─────────────────────────────────────
@@ -349,12 +384,14 @@ function toMatch(q, { maxTerms = 16, column = null, prefixLast = false } = {}) {
  * toMatch()'s query → to_tsquery text: 'w1' & 'w2' & 'w3':* (and :A on each word for the title). any: true (the
  * relaxed answer to several words that found little, server/api/query.js) joins them with | instead.
  */
+function tsTerm(m, i, field = null) {
+    const weight = field || (m.column === 'title' ? 'A' : '');
+    const star = m.prefix && i === m.words.length - 1 ? '*' : '';
+    return `'${m.words[i]}'${star || weight ? `:${star}${weight}` : ''}`;
+}
+
 function tsquery(m) {
-    const weight = m.column === 'title' ? 'A' : '';
-    return m.words.map((w, i) => {
-        const star = m.prefix && i === m.words.length - 1 ? '*' : '';
-        return `'${w}'${star || weight ? `:${star}${weight}` : ''}`;
-    }).join(m.any ? ' | ' : ' & ');
+    return m.words.map((_, i) => tsTerm(m, i)).join(m.any ? ' | ' : ' & ');
 }
 
 /** Plain text with the engine's snippet marks → HTML with <mark>, everything else escaped. */
@@ -364,4 +401,4 @@ function snippetHtml(snip) {
     return esc.split(MARK_OPEN).join('<mark>').split(MARK_CLOSE).join('</mark>');
 }
 
-module.exports = { createEngine, toMatch, tsquery, snippetHtml, freshnessBoost, fold, words, filterClause };
+module.exports = { createEngine, toMatch, tsquery, tsTerm, wordWeight, snippetHtml, freshnessBoost, fold, words, filterClause };
