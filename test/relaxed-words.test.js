@@ -61,6 +61,33 @@ t('a query whose every word finds enough is answered exactly as before', async (
     assert.ok(ids(none).every((id) => id.startsWith('garden-')), 'relaxed, the garden pages still answer');
 });
 
+t('relaxed, a query keeps its content words: "do" alone does not answer "things to do chongqing"', async () => {
+    for (let i = 1; i <= 7; i++) {
+        await put({ owner: 'help', type: 'article', id: `do-${i}`, title: `Do I need thing number ${i}?`, summary: 'An answer.', canonical_url: `https://openvibe.help/a/do-${i}` });
+    }
+    await put({ owner: 'tours', type: 'city', id: 'chongqing', title: 'Chongqing, China', summary: 'A city on the Yangtze. 24 places to see on OpenVibe.Tours.',
+        body: 'Chongqing\nThings to do, places to see, walks, stays and flights.', canonical_url: 'https://openvibe.tours/city/chongqing' });
+    const r = await q('things to do chongqing', '&limit=10');
+    const got = ids(r);
+    assert.strictEqual(got[0], 'chongqing', `the city first: ${got.join(', ')}`);
+    assert.ok(!got.some((id) => id.startsWith('do-')), 'no answer for "do" alone');
+});
+
+t('relaxed, a rare word outweighs a common one, and the field it is in counts (ranking.js coverage)', async () => {
+    const { coverage, contentWords } = require('../server/ranking');
+    const { wordWeight } = require('../server/engine/pg');
+    assert.ok(wordWeight(30) > wordWeight(1000), 'rarer weighs more');
+    const match = { words: ['chongqing', 'walk'], any: true, weights: { chongqing: wordWeight(30), walk: wordWeight(1000) } };
+    const place = { title: '洪崖洞', summary: 'Attraction in Chongqing, China.', body: '' };
+    const shoe = { title: 'Go Walk Max Cushioning Flex', summary: 'A slip-on.', body: '' };
+    const route = { title: 'Old town walk', summary: 'A self-guided walk in Chongqing, China.', body: '' };
+    assert.ok(coverage(place, match) > coverage(shoe, match), `a place in Chongqing (${coverage(place, match)}) before a shoe called Walk (${coverage(shoe, match)})`);
+    assert.ok(coverage(route, match) > coverage(place, match), 'a walk in Chongqing before both');
+    assert.strictEqual(coverage(place, { ...match, any: false }), 0, 'only a relaxed query has a cover');
+    assert.deepStrictEqual(contentWords({ words: ['things', 'to', 'do', 'chongqing'], prefix: false }).words, ['things', 'chongqing']);
+    assert.deepStrictEqual(contentWords({ words: ['to', 'do'], prefix: false }).words, ['to', 'do'], 'all function words: kept');
+});
+
 t('a single word that finds nothing still finds nothing', async () => {
     assert.deepStrictEqual(ids(await q('zzzunknownword')), []);
 });
