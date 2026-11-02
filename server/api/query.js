@@ -34,6 +34,11 @@ const { docTier, isThin, dedupeKey, siteHosts } = require('../ranking');
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 const HYBRID_CANDIDATES = 100;
+// A query of several words is answered with every word first. When that finds fewer than this, the answer is the
+// documents with any of the words instead ("sony headphones" found nothing while "headphones" found deals): ranked by
+// the same tiers, so a title holding a word comes before a body that mentions one, and the ones with every word rank
+// first by relevance. Its cursor carries x, so the next page continues the same relaxed query.
+const RELAX_BELOW = 5;
 
 class QueryError extends Error {
     constructor(code, detail) { super(detail); this.code = code; }
@@ -70,6 +75,11 @@ function queryHash(parts) {
 
 function encodeCursor(obj) {
     return Buffer.from(JSON.stringify(obj)).toString('base64url');
+}
+
+/** Whether a cursor carries a flag (x: a relaxed answer's page), before it is checked against the query. */
+function cursorFlag(s, key) {
+    try { return Boolean(JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'))[key]); } catch { return false; }
 }
 
 function decodeCursor(s, hash) {
@@ -246,6 +256,59 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         return fuseRrf(keyword.hits, near).map((h) => ({ ...h, snip: snips.get(h.rid) }));
     }
 
+    /** One page for a word query (every word, or any with relaxed): hybrid when vectors are there, keyword else. */
+    async function matchedPage({ match, hash, after, state, filters, viewer, limit, now, relaxed }) {
+        const results = [];
+        const seen = new Set();
+        let next = null;
+        let explain;
+        let refNow = now;
+        const x = relaxed ? { x: 1 } : {};
+        if (state.ranking === 'hybrid') {
+            if (after && after.offset === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
+            if (after && after.now != null) refNow = after.now;
+            let fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
+            // A plain query's tiers: site first, then title > summary > body, thin VODs last within a tier.
+            fused = await rankOrder(fused, { match, store });
+            // Deals: the product the person asked for (its title or category) beats a description-only match.
+            if (filters.owner === 'deals') fused = await dealsOrder(fused, { match, store });
+            let consumed = after ? after.offset : 0;
+            let lastRid = after ? after.rid : null;
+            for (let i = consumed; i < fused.length && results.length < limit; i++) {
+                const f = fused[i];
+                consumed = i + 1;
+                lastRid = f.rid;
+                // Defence in depth: the vector store is public-only, the keyword SQL is ACL-aware.
+                const found = f.found !== undefined ? f.found : await store.byRid(f.rid);
+                if (!found || !canView(viewer, found.row, found.doc)) continue;
+                const key = dedupeKey(found.doc);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                results.push(projection(found.doc, found.row, f.snip, f.ranks));
+            }
+            if (consumed < fused.length) next = encodeCursor({ k: 'f', o: consumed, i: lastRid, n: refNow, h: hash, ...x });
+            explain = { ranking: 'hybrid' };
+        } else {
+            if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
+            if (after && after.now != null) refNow = after.now;
+            const page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
+            let position = 0;
+            for (const h of page.hits) {
+                position++;
+                const found = await store.byRid(h.rid);
+                // Defence in depth: the engine already filtered; re-check against the stored row.
+                if (!found || !canView(viewer, found.row, found.doc)) continue;
+                const key = dedupeKey(found.doc);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                results.push(projection(found.doc, found.row, h.snip, { keyword: position, vector: null }));
+            }
+            next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, m: page.next.importance, s: page.next.recency, i: page.next.rid, n: refNow, h: hash, ...x }) : null;
+            explain = { ranking: 'keyword', reason: state.reason };
+        }
+        return { results, next, explain };
+    }
+
     async function run({ text = '', query = {}, filters = null, viewer, limit, cursor, facetKeys = [], now = clock(), since = null }) {
         if (text.length > 500) throw new QueryError('search.bad_query', 'q is longer than 500 characters');
         filters = filters || parseFilters(query, config);
@@ -254,7 +317,11 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         if (facetKeys.length > 5 || facetKeys.some(k => !FACET_KEY_RE.test(k))) throw new QueryError('search.bad_query', 'facets: at most 5 well-formed keys');
 
         const trimmed = text.trim();
-        const match = trimmed ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
+        const exact = trimmed ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
+        const relaxedMatch = exact && exact.words.length > 1 ? { ...exact, any: true } : null;
+        // A later page of a relaxed answer says so in its cursor (x), and continues that query.
+        const relaxedCursor = Boolean(relaxedMatch && cursor && cursorFlag(cursor, 'x'));
+        const match = relaxedCursor ? relaxedMatch : exact;
         const hash = queryHash([match, filters]);
         const after = decodeCursor(cursor, hash);
         if (trimmed && !match) {
@@ -266,55 +333,19 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
             };
         }
 
-        const results = [];
-        const seen = new Set();
+        let results = [];
         let next = null;
         let explain;
-        let refNow = now;
+        let used = match;
         if (match) {
             const state = await semanticState(trimmed);
-            if (state.ranking === 'hybrid') {
-                if (after && after.offset === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-                if (after && after.now != null) refNow = after.now;
-                let fused = await hybridCandidates({ match, filters, viewer, now: refNow, vector: state.vector });
-                // A plain query's tiers: site first, then title > summary > body, thin VODs last within a tier.
-                fused = await rankOrder(fused, { match, store });
-                // Deals: the product the person asked for (its title or category) beats a description-only match.
-                if (filters.owner === 'deals') fused = await dealsOrder(fused, { match, store });
-                let consumed = after ? after.offset : 0;
-                let lastRid = after ? after.rid : null;
-                for (let i = consumed; i < fused.length && results.length < limit; i++) {
-                    const f = fused[i];
-                    consumed = i + 1;
-                    lastRid = f.rid;
-                    // Defence in depth: the vector store is public-only, the keyword SQL is ACL-aware.
-                    const found = f.found !== undefined ? f.found : await store.byRid(f.rid);
-                    if (!found || !canView(viewer, found.row, found.doc)) continue;
-                    const key = dedupeKey(found.doc);
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    results.push(projection(found.doc, found.row, f.snip, f.ranks));
-                }
-                if (consumed < fused.length) next = encodeCursor({ k: 'f', o: consumed, i: lastRid, n: refNow, h: hash });
-                explain = { ranking: 'hybrid' };
-            } else {
-                if (after && after.rank === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
-                if (after && after.now != null) refNow = after.now;
-                const page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
-                let position = 0;
-                for (const h of page.hits) {
-                    position++;
-                    const found = await store.byRid(h.rid);
-                    // Defence in depth: the engine already filtered; re-check against the stored row.
-                    if (!found || !canView(viewer, found.row, found.doc)) continue;
-                    const key = dedupeKey(found.doc);
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    results.push(projection(found.doc, found.row, h.snip, { keyword: position, vector: null }));
-                }
-                next = page.next ? encodeCursor({ k: 'r', r: page.next.rank, m: page.next.importance, s: page.next.recency, i: page.next.rid, n: refNow, h: hash }) : null;
-                explain = { ranking: 'keyword', reason: state.reason };
+            let page = await matchedPage({ match, hash, after, state, filters, viewer, limit, now, relaxed: relaxedCursor });
+            // The first page of several words that found little: every document with any of the words instead.
+            if (!cursor && relaxedMatch && !relaxedCursor && page.results.length < RELAX_BELOW) {
+                const loose = await matchedPage({ match: relaxedMatch, hash: queryHash([relaxedMatch, filters]), after: null, state, filters, viewer, limit, now, relaxed: true });
+                if (loose.results.length > page.results.length) { page = loose; used = relaxedMatch; }
             }
+            ({ results, next, explain } = page);
         } else {
             if (after && after.sort_at === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
             const page = await engine.browse({ filters, viewer, limit, after });
@@ -329,7 +360,7 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         }
 
         const body = { results, next_cursor: next, explain };
-        if (facetKeys.length) body.facets = await engine.facetCounts({ match, filters, viewer, keys: facetKeys });
+        if (facetKeys.length) body.facets = await engine.facetCounts({ match: used, filters, viewer, keys: facetKeys });
         return body;
     }
 
