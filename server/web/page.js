@@ -428,6 +428,13 @@ main.results form { margin-bottom: 12px; }
 ol.res > li { padding: 18px 0; }
 .r-src { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: .8125rem; line-height: 1.3; color: var(--muted); }
 .r-ic { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; font-size: .75rem; font-weight: 800; color: color-mix(in srgb, var(--accent) 75%, var(--fg)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.r-ic--ov { border-radius: 50%; background: none; color: var(--accent); }
+.r-ic--ov svg { width: 24px; height: 24px; display: block; }
+.r-ic--ov .ovi-bg { fill: currentColor; opacity: .12; }
+.r-ic--ov .ovi-ring { fill: none; stroke: currentColor; stroke-width: 3; opacity: .36; }
+.r-ic--ov .ovi-comet, .r-ic--ov .ovi-prog { display: none; }
+.r-ic--ov .ovi-glyph { fill: none; stroke: var(--fg); stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.r-ic--ov .ovi-glyph--solid { fill: var(--fg); stroke: none; }
 .r-site { font-weight: 650; color: var(--fg); }
 .r-kind::before, .r-vis::before { content: '·'; margin-right: 8px; }
 .r-src time { margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -489,6 +496,17 @@ function shortDate(iso, now = Date.now()) {
 }
 const siteName = (owner) => (SOURCES[owner] ? SOURCES[owner][0] : owner);
 const siteShort = (owner) => siteName(owner).replace(/^OpenVibe\./, '');
+// Each result is marked with its site's own ring icon (openvibe-shared/ov-icons, the icons the network's menus and
+// cards use), still: the comet and progress arcs are hidden here. A site the ring set does not know keeps its letter.
+const ovIcons = require('openvibe-shared/ov-icons');
+const RESULT_ICON = new Map();
+function resultIcon(owner) {
+    if (!RESULT_ICON.has(owner)) {
+        const key = ICON_OF[owner] || owner;
+        RESULT_ICON.set(owner, ovIcons.resolve(key) !== 'ov' ? `<span class="r-ic r-ic--ov" aria-hidden="true">${ovIcons.svg(key)}</span>` : null);
+    }
+    return RESULT_ICON.get(owner) || `<span class="r-ic" aria-hidden="true">${esc(siteShort(owner).charAt(0).toUpperCase())}</span>`;
+}
 const kindOf = (owner, type) => {
     const w = KIND_WORDS[`${owner}/${type}`];
     const k = w ? w[0] : String(type || '').replace(/[_-]+/g, ' ');
@@ -512,7 +530,7 @@ function resultsHtml(results) {
         const date = shortDate(iso);
         const snip = snippetOf(r);
         return `<li>
-<div class="r-src"><span class="r-ic" aria-hidden="true">${esc(siteShort(r.owner).charAt(0).toUpperCase())}</span><span class="r-site">${esc(siteName(r.owner))}</span><span class="r-kind">${esc(kindOf(r.owner, r.type))}</span>${date ? `<time datetime="${esc(iso)}">${date}</time>` : ''}${r.visibility !== 'public' ? `<span class="r-vis">${esc(r.visibility)}</span>` : ''}</div>
+<div class="r-src">${resultIcon(r.owner)}<span class="r-site">${esc(siteName(r.owner))}</span><span class="r-kind">${esc(kindOf(r.owner, r.type))}</span>${date ? `<time datetime="${esc(iso)}">${date}</time>` : ''}${r.visibility !== 'public' ? `<span class="r-vis">${esc(r.visibility)}</span>` : ''}</div>
 ${href ? `<a class="t" href="${esc(href)}">${title}</a>` : `<span class="t">${title}</span>`}
 ${snip ? `<p class="snip">${snip}</p>` : ''}</li>`;
     }).join('\n')}</ol>`;
