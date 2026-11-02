@@ -342,13 +342,16 @@ function toMatch(q, { maxTerms = 16, column = null, prefixLast = false } = {}) {
     return { words, prefix, column };
 }
 
-/** toMatch()'s query → to_tsquery text: 'w1' & 'w2' & 'w3':* (and :A on each word for the title). */
+/**
+ * toMatch()'s query → to_tsquery text: 'w1' & 'w2' & 'w3':* (and :A on each word for the title). any: true (the
+ * relaxed answer to several words that found little, server/api/query.js) joins them with | instead.
+ */
 function tsquery(m) {
     const weight = m.column === 'title' ? 'A' : '';
     return m.words.map((w, i) => {
         const star = m.prefix && i === m.words.length - 1 ? '*' : '';
         return `'${w}'${star || weight ? `:${star}${weight}` : ''}`;
-    }).join(' & ');
+    }).join(m.any ? ' | ' : ' & ');
 }
 
 /** Plain text with the engine's snippet marks → HTML with <mark>, everything else escaped. */
