@@ -65,7 +65,7 @@ t('the stat row, the sources with their counts, the example searches, the API an
 t('a result page keeps none of it', async () => {
     const r = await html('/?q=robotics');
     assert.ok(!r.text.includes('fs-stats') && !r.text.includes('id="faq"') && !r.text.includes('fs-try'));
-    assert.ok(r.text.includes('<main id="main">'));
+    assert.ok(r.text.includes('<main id="main" class="results">'), 'a result page is a results page, not the front');
 });
 
 t('done', async () => { await svc.stop(); });
