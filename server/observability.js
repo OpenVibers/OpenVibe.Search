@@ -22,20 +22,44 @@ const { EXPOSURE } = require('./document');
 
 const EXPOSURE_NAMES = Object.fromEntries(Object.entries(EXPOSURE).map(([name, n]) => [n, name]));
 
-function readers(db, engine) {
+/**
+ * A read kept for keepMs and shared by callers at the same moment. The document and index counts walk every row (35 ms
+ * and 11 ms, asked by two gauges on each scrape and by the readiness check: 203k calls each from 09-28 to 11-02), and
+ * the store totals in the readiness details another 52 ms. 30 s in production, every call elsewhere (tests read their
+ * own writes).
+ */
+const COUNTS_MS = process.env.NODE_ENV === 'production' ? 30_000 : 0;
+function kept(read, keepMs = COUNTS_MS, now = () => Date.now()) {
+    if (!(keepMs > 0)) return read;
+    let hold = null;
+    return () => {
+        const t = now();
+        if (hold && (hold.pending || t - hold.at < keepMs)) return hold.pending || Promise.resolve(hold.value);
+        const pending = Promise.resolve().then(read);
+        hold = { at: t, pending };
+        return pending.then((value) => { if (hold && hold.pending === pending) hold = { at: t, value }; return value; },
+            (err) => { if (hold && hold.pending === pending) hold = null; throw err; });
+    };
+}
+
+function readers(db, engine, { keepMs = COUNTS_MS } = {}) {
     const byExposure = db.prepare('SELECT exposure, COUNT(*)::int AS n FROM documents GROUP BY exposure');
+    // Both counts are read together and kept together, so the index check never compares two different moments.
+    const pair = kept(async () => {
+        const [rows, c] = await Promise.all([byExposure.all(), engine.counts()]);
+        const docs = Object.fromEntries(Object.keys(EXPOSURE).map((k) => [k, 0]));
+        for (const r of rows) docs[EXPOSURE_NAMES[r.exposure] || 'none'] += r.n;
+        return { docs, fts: { public: c.public_listed, restricted: c.restricted } };
+    }, keepMs);
     return {
         /** { none, restricted, public_unlisted, public_listed }, every exposure present (0 when empty). */
-        async documents() {
-            const out = Object.fromEntries(Object.keys(EXPOSURE).map((k) => [k, 0]));
-            for (const r of await byExposure.all()) out[EXPOSURE_NAMES[r.exposure] || 'none'] += r.n;
-            return out;
-        },
-        indexed: async () => { const c = await engine.counts(); return { public: c.public_listed, restricted: c.restricted }; },
+        documents: async () => ({ ...(await pair()).docs }),
+        indexed: async () => ({ ...(await pair()).fts }),
     };
 }
 
 function createSearchReadiness({ db, config, engine, store, outbox, purges = null, purger = null, saved = null, notifier = null, release = null }) {
+    const storeCounts = kept(() => store.counts());
     const read = readers(db, engine);
     return createReadiness({
         service: 'search',
@@ -82,7 +106,7 @@ function createSearchReadiness({ db, config, engine, store, outbox, purges = nul
             const dbOk = body.checks.db.status === 'ok';
             return {
                 engine: engine.name,
-                documents: dbOk ? await store.counts() : null,
+                documents: dbOk ? await storeCounts() : null,
                 outbox: dbOk ? await outbox.status() : null,
                 webhook: config.events.webhookSecrets.length ? 'on' : 'off (SEARCH_EVENTS_SECRET unset)',
                 purge: dbOk && purges ? {
@@ -120,4 +144,4 @@ function registerSearchGauges(registry, { db, engine, outbox, purges = null }) {
     }
 }
 
-module.exports = { createSearchReadiness, registerSearchGauges };
+module.exports = { kept, createSearchReadiness, registerSearchGauges };
