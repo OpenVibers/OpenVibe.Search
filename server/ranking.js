@@ -163,11 +163,25 @@ function dedupeKey(doc) {
 // ranked hundreds of VODs titled "… Stream" above Help's "Can I stream without OBS?", which never reached the top 100).
 const QUESTION_WORDS = new Set(['how', 'what', 'why', 'when', 'where', 'which', 'who', 'can', 'do', 'does', 'is', 'are', 'should', 'will']);
 function isQuestion(match) {
+    if (match && match.question) return true;
     return Boolean(match && !match.column && Array.isArray(match.words) && match.words.length >= 2 && QUESTION_WORDS.has(match.words[0]));
 }
 
+// The words a question is made of that say nothing about what it asks. The index uses the 'simple' configuration
+// (no stop words), so "how do I stream" had to find how, do, i and stream all together: long VOD transcripts did,
+// Help's "Can I stream without OBS?" did not (production, 2026-11-02).
+const FUNCTION_WORDS = new Set([...QUESTION_WORDS, 'could', 'would', 'did', 'was', 'were', 'be', 'i', 'me', 'my', 'we', 'our', 'you',
+    'your', 'it', 'its', 'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'with', 'from', 'and', 'or', 'there', 'this', 'that', 'get', 'make']);
+
+/** A question's match on its content words ("how do I stream" → stream), marked as a question; else the match as it is. */
+function questionMatch(match) {
+    if (!isQuestion(match)) return match;
+    const content = match.words.filter((w) => !FUNCTION_WORDS.has(w));
+    return content.length ? { ...match, words: content, prefix: match.prefix && content[content.length - 1] === match.words[match.words.length - 1], question: true } : match;
+}
+
 module.exports = {
-    isQuestion,
+    isQuestion, questionMatch,
     SITE_ALIASES, fold, words, tokens, siteHosts, siteOnlyQuery, siteUrlPattern, urlBelongsToSites,
     textMatches, fieldTier, docTier, isThin, dedupeKey,
 };

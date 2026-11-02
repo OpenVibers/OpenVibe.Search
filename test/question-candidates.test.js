@@ -2,8 +2,10 @@
 /**
  * A question's answer must reach the candidates: on production "how do I stream" matched hundreds of recent VODs titled
  * "… Stream" in the title tier, and Help's older "Can I stream without OBS?" never made the top 100 the page ranks.
- * The engine lifts an article half a tier on a question: above the recordings that share its tier, below the next
- * tier up. A plain query is unchanged.
+ * The index has no stop words, so a question matches on its content words ("how do I stream" → stream), and the engine
+ * lifts an article half a tier on a question: above the recordings that share its tier, below the next tier up. The
+ * recordings here hold every word of the question in their bodies, as production's transcripts do. A plain query is
+ * unchanged.
  */
 const assert = require('assert');
 const { boot, request, doc, suite } = require('./helpers');
@@ -19,7 +21,9 @@ t('boot and seed', async () => {
     const recent = new Date(Date.now() - 3600e3).toISOString();
     const old = '2026-06-01T00:00:00Z';
     for (let i = 1; i <= 8; i++) {
-        await put({ owner: 'live', type: 'vod', id: `vod-${i}`, title: `Late night stream number ${i}`, summary: 'A recorded stream with chat, music and talk about the week and the plans ahead.', canonical_url: `https://openvibe.video/v/${8100 + i}`, published_at: recent, updated_at: recent });
+        // Like production's transcripts: every word of the question is somewhere in the body, so all four words
+        // together find these and the relaxed answer never runs.
+        await put({ owner: 'live', type: 'vod', id: `vod-${i}`, title: `Late night stream number ${i}`, summary: 'A recorded stream with chat, music and talk about the week and the plans ahead.', body: 'so how do i stream this, chat asked, and i said do it like this', canonical_url: `https://openvibe.video/v/${8100 + i}`, published_at: recent, updated_at: recent });
     }
     await put({ owner: 'help', type: 'article', id: 'help-obs', title: 'Can I stream without OBS?', summary: 'Yes. Go live from your browser on OpenVibe.Live: press Go Live and you are live in seconds, no software.', canonical_url: 'https://openvibe.help/a/openvibe.live/can-i-stream-without-obs', published_at: old, updated_at: old });
     await put({ owner: 'wiki', type: 'article', id: 'wiki-body', title: 'Camera notes', summary: 'Lenses and light.', body: 'how to stream with a phone camera', canonical_url: 'https://openvibe.wiki/p/camera-notes', published_at: old, updated_at: old });
