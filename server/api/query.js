@@ -29,7 +29,7 @@ const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
 const { fuseRrf } = require('../fabric/rrf');
 const { createQueryEmbeddingCache } = require('../fabric/embed');
-const { docTier, isThin, dedupeKey, siteHosts } = require('../ranking');
+const { docTier, isThin, dedupeKey, siteHosts, isQuestion } = require('../ranking');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -184,11 +184,7 @@ async function dealsOrder(fused, { match, store }) {
 //   - a title match (3) outranks a summary-only match (2), which outranks a body-only one (1);
 //   - a thin username-titled VOD ranks below a real title+summary inside the same tier.
 // The fused order is the final tie-break, so relevance still decides among equals.
-// A question ("how do I stream", "can I go live without OBS") wants an answer: inside its tier, an article (Help's
-// answers, a site's docs) comes before a recording or a post that only shares a word (2026-11-02: "how do I stream"
-// ranked four VODs titled "… Stream" above Help's "Can I stream without OBS?").
-const QUESTION_WORDS = new Set(['how', 'what', 'why', 'when', 'where', 'which', 'who', 'can', 'do', 'does', 'is', 'are', 'should', 'will']);
-const isQuestion = (match) => Boolean(match && match.words.length >= 2 && QUESTION_WORDS.has(match.words[0]));
+// A question wants an answer first inside its tier (ranking.js isQuestion; the engine lifts articles the same way).
 const isAnswer = (doc) => Boolean(doc && doc.type === 'article');
 
 async function rankOrder(fused, { match, store }) {
