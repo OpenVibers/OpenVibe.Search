@@ -347,7 +347,7 @@ function frontShowcase(owners = DEFAULT_EVENT_OWNERS, data = null) {
 /** The front page's data sections: the numbers, the shelves of newest documents, the API and the questions. */
 function frontSections(data) {
     const stats = data ? [[data.total, 'public documents'], [data.sources, 'sites sending'], [data.kinds, 'kinds of document'], [data.week, 'added or updated this week']].filter(([n]) => n > 0) : [];
-    const statList = stats.length ? `<ul class="fs-stats" aria-label="The index in numbers">${stats.map(([n, label]) => `<li><b>${esc(fmt(n))}</b><span>${esc(label)}</span></li>`).join('')}</ul>` : '';
+    const statList = stats.length ? `<ul class="fs-stats" aria-label="The index in numbers" tabindex="0">${stats.map(([n, label]) => `<li><b>${esc(fmt(n))}</b><span>${esc(label)}</span></li>`).join('')}</ul>` : '';
     const statRow = statList ? `<section class="sc-sec fs-stats-sec">${statList}</section>` : '';
     const shelves = data && data.shelves.length ? `<section class="sc-sec" aria-labelledby="h-new"><h2 id="h-new">New on the network</h2>
 <p class="sc-lede">The newest public documents of each kind, as they reached the index.</p>
