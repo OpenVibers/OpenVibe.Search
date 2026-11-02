@@ -20,6 +20,7 @@ t('boot', async () => {
     await svc.store.apply(doc({ id: 'prv', visibility: 'private', acl: { subjects: [alice] }, title: 'Kestrel private diary', body: 'kestrel' }));
     await svc.store.apply(doc({ id: 'drf', visibility: 'draft', title: 'Kestrel draft', body: 'kestrel' }));
     for (let i = 0; i < 25; i++) await svc.store.apply(doc({ id: `many${i}`, title: `Heron sighting ${i}`, body: 'heron' }));
+    await svc.store.apply(doc({ id: 'osp', title: 'Osprey notes', summary: 'Field notes', body: 'An osprey dives for fish at dawn near the kestrel boxes on the river', canonical_url: 'https://openvibe.wiki/p/osprey' }));
 });
 
 t('the front page is a search form, indexable, no-store, with a strict CSP', async () => {
@@ -120,6 +121,27 @@ t('results show public documents only, escaped, linked to their canonical URL, n
     assert.ok(r.text.includes('href="https://openvibe.wiki/p/kestrel?a=1&amp;b=2"'));
     assert.match(r.text, /<mark>Kestrel<\/mark>|<mark>kestrel<\/mark>/);
     assert.ok(!/private diary|Kestrel draft/.test(r.text));
+});
+
+t('a result says where it comes from, and a passage that only repeats the title gives way to the summary', async () => {
+    const r = await html('/?q=kestrel');
+    // The source row: the site's monogram, its name, the kind of document and the day.
+    assert.match(r.text, /<div class="r-src"><span class="r-ic" aria-hidden="true">W<\/span><span class="r-site">OpenVibe\.Wiki<\/span><span class="r-kind">Wiki page<\/span><time datetime="[^"]+">[A-Z][a-z]{2} \d{1,2}(, \d{4})?<\/time><\/div>/);
+    // "kestrel kestrel" says nothing the title does not: the summary is shown instead, escaped.
+    const pub = r.text.slice(r.text.indexOf('href="https://openvibe.wiki/p/kestrel'));
+    assert.match(pub.slice(0, 400), /<p class="snip">Kestrel &quot;boxes&quot; &amp; more<\/p>/);
+    // A passage with words of its own keeps its highlight.
+    const osp = r.text.slice(r.text.indexOf('href="https://openvibe.wiki/p/osprey"'));
+    assert.match(osp.slice(0, 600), /<p class="snip">[^<]*<mark>kestrel<\/mark>/i);
+    // A compact heading on a result page; the Alpha note moves to the foot.
+    assert.match(r.text, /<h1 class="h-compact"><a href="\/">OpenVibe\.Search<\/a><\/h1>/);
+    assert.ok(!r.text.includes('<p class="lede">'));
+    assert.match(r.text, /Alpha: the index holds only what the sites have sent so far\./);
+});
+
+t('a search narrowed to one site has a row to widen it again', async () => {
+    const r = await html('/?q=heron&owner=wiki');
+    assert.match(r.text, /<nav class="r-filter" aria-label="Narrow to one site"><a class="chip" href="\/\?q=heron">All sites<\/a><a class="chip on" href="\/\?q=heron&amp;owner=wiki" aria-current="page">Wiki<\/a><\/nav>/);
 });
 
 t('a signed-in cookie adds that person\'s documents; a bad cookie searches as anonymous', async () => {

@@ -366,7 +366,7 @@ function frontSections(data) {
 }
 
 // ownHeading: the body brings its own <h1> (the update log), so the search page's heading and lede stay out.
-function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false, after = '', description = SITE_DESCRIPTION, heroAside = '' }) {
+function layout({ title, q, owner, type, body, noindex, canonical, jsonLd, front = false, ownHeading = false, after = '', description = SITE_DESCRIPTION, heroAside = '', compact = false }) {
     const url = noindex ? undefined : canonical;
     return shell.page({
         ...FRAME,
@@ -404,9 +404,30 @@ li a.t { color: var(--accent); font-size: 1.05rem; text-decoration: none; }
 li a.t:hover { text-decoration: underline; }
 .meta { color: var(--muted); font-size: .85rem; }
 .snip { margin: 4px 0 0; }
+/* Result pages (2026-11-01): a compact heading, a row of sites to narrow to, and results that say where they come from. */
+.h-compact { font-size: 1rem; margin: 0 0 12px; }
+.h-compact a { color: var(--muted); text-decoration: none; }
+.h-compact a:hover { color: var(--fg); }
+main.results form { margin-bottom: 12px; }
+.r-filter { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 4px; padding: 2px 16px 8px; scrollbar-width: none; overscroll-behavior-x: contain; }
+.r-filter::-webkit-scrollbar { display: none; }
+.chip { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .875rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.chip:hover { color: var(--fg); border-color: var(--accent); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip.on { color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+ol.res > li { padding: 18px 0; }
+.r-src { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: .8125rem; line-height: 1.3; color: var(--muted); }
+.r-ic { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; font-size: .75rem; font-weight: 800; color: color-mix(in srgb, var(--accent) 75%, var(--fg)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.r-site { font-weight: 650; color: var(--fg); }
+.r-kind::before, .r-vis::before { content: '·'; margin-right: 8px; }
+.r-src time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.r-vis { text-transform: capitalize; }
+ol.res a.t, ol.res span.t { display: block; margin-top: 8px; font-size: 1.0625rem; font-weight: 600; line-height: 1.35; color: color-mix(in srgb, var(--accent) 80%, var(--fg)); }
+ol.res .snip { margin-top: 4px; font-size: .9375rem; line-height: 1.5; color: color-mix(in srgb, var(--fg) 80%, var(--bg)); }
 /* The match highlight follows the reader's theme, not the device's dark mode: --mark came from prefers-color-scheme, so
    Daylight on a dark-mode phone drew dark olive behind dark text (2026-11-01). A translucent yellow reads on both. */
 mark { background: color-mix(in srgb, #facc15 40%, transparent); color: inherit; border-radius: 2px; }
+ol.res mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); font-weight: 600; padding: 0 1px; }
 .empty, .note { color: var(--muted); }
 .more { display: inline-block; margin-top: 16px; color: var(--accent); }
 .page-note { margin-top: 40px; color: var(--muted); font-size: .85rem; }
@@ -414,7 +435,7 @@ mark { background: color-mix(in srgb, #facc15 40%, transparent); color: inherit;
 </style>`,
         ].join('\n'),
         body: `<div id="navbar-mount"></div>
-<main id="main"${front ? ' class="front"' : ''}>
+<main id="main"${front ? ' class="front"' : compact ? ' class="results"' : ''}>
 ${front ? showcase.hero({
         eyebrow: 'OpenVibe.Search · part of OpenVibe Services',
         title: 'Search the', accent: 'OpenVibe network',
@@ -422,7 +443,7 @@ ${front ? showcase.hero({
         // The index's own numbers beside the heading (2026-11-01): the generic aura left a tall empty band between the
         // heading and the search box on a desktop.
         ...(heroAside ? { html: heroAside } : {}),
-    }) : ownHeading ? '' : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
+    }) : ownHeading ? '' : compact ? `<h1 class="h-compact"><a href="/">OpenVibe.Search</a></h1>` : `<h1><a href="/" style="color:inherit;text-decoration:none">OpenVibe.Search</a></h1>
 <p class="lede">Search what the OpenVibe network's services have published. Alpha: the index holds only what they have sent so far.</p>`}
 <form method="get" action="/" role="search">
 <input type="search" name="q" value="${esc(q)}" maxlength="500" placeholder="Search the network" aria-label="Search terms" autofocus>
@@ -433,7 +454,7 @@ ${front ? `<ul class="fs-try" aria-label="Try a search"><li>Try:</li>${EXAMPLES.
 ${body}
 ${after}
 <section class="page-note">
-<p>Private, draft and deleted documents are never shown. A document that is removed or made private leaves these results at once.
+<p>${compact ? 'Alpha: the index holds only what the sites have sent so far. ' : ''}Private, draft and deleted documents are never shown. A document that is removed or made private leaves these results at once.
 JSON API: <a href="/api/v1/search?q=${encodeURIComponent(q || '')}">/api/v1/search</a>.
 Source: <a href="https://github.com/OpenVibers/OpenVibe.Search">OpenVibers/OpenVibe.Search</a>.</p>
 </section>
@@ -442,15 +463,58 @@ Source: <a href="https://github.com/OpenVibers/OpenVibe.Search">OpenVibers/OpenV
     });
 }
 
+// ── A result (2026-11-01 design) ──
+// Each result says where it comes from first (the site, as a monogram tile in the theme's accent, its name, the kind of
+// document and the day), then the title, then a line that adds something: the matched passage, or the document's own
+// summary where the match is only the title (a snippet that repeats the title said nothing new).
+const plainText = (h) => String(h || '').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "Oct 24", with the year when it is not this year ("Oct 24, 2025"); UTC, like the rest of the page. */
+function shortDate(iso, now = Date.now()) {
+    const t = Date.parse(iso || '');
+    if (!Number.isFinite(t)) return '';
+    const d = new Date(t);
+    const y = d.getUTCFullYear();
+    return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}${y === new Date(now).getUTCFullYear() ? '' : `, ${y}`}`;
+}
+const siteName = (owner) => (SOURCES[owner] ? SOURCES[owner][0] : owner);
+const siteShort = (owner) => siteName(owner).replace(/^OpenVibe\./, '');
+const kindOf = (owner, type) => {
+    const w = KIND_WORDS[`${owner}/${type}`];
+    const k = w ? w[0] : String(type || '').replace(/[_-]+/g, ' ');
+    return k.charAt(0).toUpperCase() + k.slice(1);
+};
+const words = (s) => plainText(s).toLowerCase().split(/[^\p{L}\p{N}$.]+/u).filter((w) => w.length > 1);
+/** The matched passage, unless it mostly repeats the title (then the document's own summary says more). */
+function snippetOf(r) {
+    const snip = words(r.snippet_html);
+    const title = new Set(words(r.title));
+    const inTitle = snip.filter((w) => title.has(w)).length;
+    const repeatsTitle = !snip.length || inTitle / snip.length >= 0.5;
+    if (!repeatsTitle) return r.snippet_html;
+    return r.summary ? esc(r.summary) : '';
+}
 function resultsHtml(results) {
-    return `<ol>${results.map((r) => {
+    return `<ol class="res">${results.map((r) => {
         const href = safeHref(r.canonical_url);
         const title = esc(r.title || `${r.owner}/${r.type}/${r.id}`);
-        const date = dateOf(r.published_at || r.updated_at);
-        return `<li>${href ? `<a class="t" href="${esc(href)}">${title}</a>` : `<span class="t">${title}</span>`}
-<div class="meta">${esc(r.owner)} · ${esc(r.type)}${date ? ` · ${date}` : ''}${r.visibility !== 'public' ? ` · ${esc(r.visibility)}` : ''}</div>
-${r.snippet_html ? `<p class="snip">${r.snippet_html}</p>` : r.summary ? `<p class="snip">${esc(r.summary)}</p>` : ''}</li>`;
+        const iso = r.published_at || r.updated_at || '';
+        const date = shortDate(iso);
+        const snip = snippetOf(r);
+        return `<li>
+<div class="r-src"><span class="r-ic" aria-hidden="true">${esc(siteShort(r.owner).charAt(0).toUpperCase())}</span><span class="r-site">${esc(siteName(r.owner))}</span><span class="r-kind">${esc(kindOf(r.owner, r.type))}</span>${date ? `<time datetime="${esc(iso)}">${date}</time>` : ''}${r.visibility !== 'public' ? `<span class="r-vis">${esc(r.visibility)}</span>` : ''}</div>
+${href ? `<a class="t" href="${esc(href)}">${title}</a>` : `<span class="t">${title}</span>`}
+${snip ? `<p class="snip">${snip}</p>` : ''}</li>`;
     }).join('\n')}</ol>`;
+}
+
+/** The sites in these results, as links that narrow the search to one (and one that widens it again). */
+function filterRow({ q, owner, type, results }) {
+    const owners = [...new Set([...(owner ? [owner] : []), ...results.map((r) => r.owner)])].filter(Boolean).slice(0, 10);
+    if (owners.length < 2 && !owner) return '';
+    const link = (o) => { const u = new URLSearchParams(); if (q) u.set('q', q); if (o) u.set('owner', o); if (type) u.set('type', type); return `/?${u.toString()}`; };
+    const chip = (o, label) => `<a class="chip${(o || '') === (owner || '') ? ' on' : ''}" href="${esc(link(o))}"${(o || '') === (owner || '') ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
+    return `<nav class="r-filter" aria-label="Narrow to one site">${chip('', 'All sites')}${owners.map((o) => chip(o, siteShort(o))).join('')}</nav>`;
 }
 
 // The page a browser gets for a path nothing serves: the site's own Frame, a way back, and no clue
@@ -570,7 +634,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             try {
                 const out = await searcher.run({ text: q, query: { ...(owner ? { owner } : {}), ...(type ? { type } : {}) }, viewer: viewer || ANONYMOUS, cursor });
                 body = out.results.length
-                    ? resultsHtml(out.results)
+                    ? filterRow({ q, owner, type, results: out.results }) + resultsHtml(out.results)
                     : `<p class="empty">${cursor ? 'No more results.' : 'Nothing found. The index is young: services add documents as they publish them.'}</p>`;
                 if (out.next_cursor) {
                     const u = new URLSearchParams();
@@ -596,7 +660,7 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
         if (cursor) twinParams.set('cursor', cursor);
         const twinCanonical = `${origin}/${twinParams.toString() ? `?${twinParams.toString()}` : ''}`;
         res.setHeader('Link', seo.linkHeaderTags(twinCanonical, `${origin}/llms.txt`).header);
-        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, after: isFront ? after : '', heroAside: isFront ? front.statList : '' }));
+        res.status(status).type('html').send(layout({ title: q ? `${q} · OpenVibe.Search` : isFront ? FRONT_TITLE : 'OpenVibe.Search', q, owner, type, body, noindex: searching, canonical: `${origin}/`, jsonLd, front: isFront, compact: searching, after: isFront ? after : '', heroAside: isFront ? front.statList : '' }));
     });
 
     // A browser asking for a page nothing serves gets the site's own 404 page; an API path, another
