@@ -126,7 +126,8 @@ t('results show public documents only, escaped, linked to their canonical URL, n
 t('a result says where it comes from, and a passage that only repeats the title gives way to the summary', async () => {
     const r = await html('/?q=kestrel');
     // The source row: the site's monogram, its name, the kind of document and the day.
-    assert.match(r.text, /<div class="r-src"><span class="r-ic" aria-hidden="true">W<\/span><span class="r-site">OpenVibe\.Wiki<\/span><span class="r-kind">Wiki page<\/span><time datetime="[^"]+">[A-Z][a-z]{2} \d{1,2}(, \d{4})?<\/time><\/div>/);
+    assert.match(r.text, /<div class="r-src"><span class="r-ic r-ic--ov" aria-hidden="true"><svg viewBox="0 0 48 48"[^]*?<\/svg><\/span><span class="r-site">OpenVibe\.Wiki<\/span><span class="r-kind">Wiki page<\/span><time datetime="[^"]+">[A-Z][a-z]{2} \d{1,2}(, \d{4})?<\/time><\/div>/);
+    assert.ok(r.text.includes('.r-ic--ov .ovi-comet, .r-ic--ov .ovi-prog { display: none; }'), 'the ring icon stays still: nothing spins');
     // "kestrel kestrel" says nothing the title does not: the summary is shown instead, escaped.
     const pub = r.text.slice(r.text.indexOf('href="https://openvibe.wiki/p/kestrel'));
     assert.match(pub.slice(0, 400), /<p class="snip">Kestrel &quot;boxes&quot; &amp; more<\/p>/);
