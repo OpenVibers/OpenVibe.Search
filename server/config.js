@@ -57,6 +57,8 @@ const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupo
     // Owner-API writers through openvibe-publishing/search-relay (their own outbox, delivered by PUT/DELETE):
     // OpenVibe.Meme's entries and OpenVibe.Exchange's listings.
     'meme', 'exchange',
+    // OpenVibe.Report's Rundown topic pages and OpenVibe.Design's icon and theme pages (contracts 0.275.0).
+    'report', 'design',
     // Owner-API writers listed so their front-page card and ?owner= filter exist: OpenVibe.Video's uploads (MediaHub,
     // service id media-hub; an event type has no hyphen), OpenVibe.Food's checked recipes and OpenVibe.Bot's model pages.
     'media-hub', 'food', 'bot'];

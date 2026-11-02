@@ -222,6 +222,8 @@ const SOURCES = {
     tours: ['OpenVibe.Tours', 'Places to see, cities and self-guided walks, from OpenStreetMap and Wikivoyage.'],
     meme: ['OpenVibe.Meme', 'Running jokes, catchphrases and memes, with where each one started.'],
     exchange: ['OpenVibe.Exchange', 'Themes, templates and add-ons people share, with their permissions and licence.'],
+    report: ['OpenVibe.Report', 'The Rundown: what streamers talked about, topic by topic.'],
+    design: ['OpenVibe.Design', 'Icons and themes for every OpenVibe site, free to download.'],
 };
 const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
 // What a count of each kind is called on the front page ("10,621 job listings"); a kind not named here is "documents".
@@ -236,6 +238,7 @@ const KIND_WORDS = {
     'shoes/shoe': ['shoe model', 'shoe models'],
     'tours/place': ['place to see', 'places to see'], 'tours/city': ['travel city', 'travel cities'], 'tours/route': ['self-guided walk', 'self-guided walks'],
     'meme/entry': ['meme', 'memes'], 'exchange/listing': ['shared listing', 'shared listings'],
+    'report/topic': ['Rundown topic', 'Rundown topics'], 'design/icon': ['icon', 'icons'], 'design/theme': ['theme', 'themes'],
 };
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const kindWords = (owner, type, n) => { const w = KIND_WORDS[`${owner}/${type}`]; return `${fmt(n)} ${w ? w[n === 1 ? 0 : 1] : n === 1 ? 'document' : 'documents'}`; };
