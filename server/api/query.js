@@ -29,7 +29,7 @@ const { AuthError } = require('../auth');
 const { OWNER_RE, TYPE_RE, ID_RE } = require('./documents');
 const { fuseRrf } = require('../fabric/rrf');
 const { createQueryEmbeddingCache } = require('../fabric/embed');
-const { docTier, isThin, dedupeKey, siteHosts, isQuestion } = require('../ranking');
+const { docTier, isThin, dedupeKey, siteHosts, isQuestion, questionMatch } = require('../ranking');
 
 const FACET_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LANG_RE = /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
@@ -321,7 +321,8 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         if (facetKeys.length > 5 || facetKeys.some(k => !FACET_KEY_RE.test(k))) throw new QueryError('search.bad_query', 'facets: at most 5 well-formed keys');
 
         const trimmed = text.trim();
-        const exact = trimmed ? toMatch(text, { maxTerms: config.query.maxTerms }) : null;
+        // A question matches on its content words (ranking.js questionMatch) and keeps its answer-first order.
+        const exact = trimmed ? questionMatch(toMatch(text, { maxTerms: config.query.maxTerms })) : null;
         const relaxedMatch = exact && exact.words.length > 1 ? { ...exact, any: true } : null;
         // A later page of a relaxed answer says so in its cursor (x), and continues that query.
         const relaxedCursor = Boolean(relaxedMatch && cursor && cursorFlag(cursor, 'x'));
