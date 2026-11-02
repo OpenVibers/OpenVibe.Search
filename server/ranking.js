@@ -158,7 +158,16 @@ function dedupeKey(doc) {
     return `${String((doc && doc.owner) || '').toLowerCase()}\u0000${title}`;
 }
 
+// A question ("how do I stream", "can I go live without OBS") wants an answer: an article (Help's answers, a site's
+// docs) comes before a recording or a post that only shares a word, inside its tier (2026-11-02: "how do I stream"
+// ranked hundreds of VODs titled "… Stream" above Help's "Can I stream without OBS?", which never reached the top 100).
+const QUESTION_WORDS = new Set(['how', 'what', 'why', 'when', 'where', 'which', 'who', 'can', 'do', 'does', 'is', 'are', 'should', 'will']);
+function isQuestion(match) {
+    return Boolean(match && !match.column && Array.isArray(match.words) && match.words.length >= 2 && QUESTION_WORDS.has(match.words[0]));
+}
+
 module.exports = {
+    isQuestion,
     SITE_ALIASES, fold, words, tokens, siteHosts, siteOnlyQuery, siteUrlPattern, urlBelongsToSites,
     textMatches, fieldTier, docTier, isThin, dedupeKey,
 };

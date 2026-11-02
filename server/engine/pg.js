@@ -22,7 +22,7 @@
  * Nothing outside this file writes SQL against search_fts.
  */
 const { EXPOSURE } = require('../document');
-const { fold, words, siteOnlyQuery, siteUrlPattern } = require('../ranking');
+const { fold, words, siteOnlyQuery, siteUrlPattern, isQuestion } = require('../ranking');
 
 const CONFIG = 'simple';
 const WEIGHTS = '{0.1, 0.1, 0.4, 1.0}';   // D, C body, B summary, A title: ts_rank weights 1 / 4 / 10
@@ -163,7 +163,10 @@ function createEngine(db, { freshness = { weight: 1, halfLifeDays: 30 } } = {}) 
         const relevance = `CASE WHEN ${boilerplate} THEN 0 ELSE ${base} END`;
         // Thin VODs sink below documents with a real title and summary inside the same tier; -2 is
         // larger than any base score (ts_rank × freshness < 2), so it decides before relevance does.
-        const rank = `-(${tier} * 100 + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
+        // A question lifts an article half a tier: above the recordings that share its tier, below the next tier up,
+        // so it is among the candidates the page ranks (ranking.js isQuestion).
+        const answer = isQuestion(match) ? `CASE WHEN d.type = 'article' THEN 50 ELSE 0 END` : '0';
+        const rank = `-(${tier} * 100 + ${answer} + (${relevance}) + CASE WHEN ${thin} THEN -2 ELSE 0 END)`;
         const facetNumber = (key) => `(SELECT x.value::float8 FROM doc_facets x
             WHERE x.rid = d.rid AND x.key = '${key}' AND x.value ~ '^[0-9]+([.][0-9]+)?$'
             ORDER BY x.value LIMIT 1)`;
