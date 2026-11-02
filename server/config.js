@@ -54,6 +54,9 @@ const DEFAULT_EVENT_OWNERS = ['wiki', 'blog', 'news', 'reviews', 'deals', 'coupo
     'shoes',
     // OpenVibe.Tours' places, cities and self-guided walks (contracts 0.274.0).
     'tours',
+    // Owner-API writers through openvibe-publishing/search-relay (their own outbox, delivered by PUT/DELETE):
+    // OpenVibe.Meme's entries and OpenVibe.Exchange's listings.
+    'meme', 'exchange',
     // Owner-API writers listed so their front-page card and ?owner= filter exist: OpenVibe.Video's uploads (MediaHub,
     // service id media-hub; an event type has no hyphen), OpenVibe.Food's checked recipes and OpenVibe.Bot's model pages.
     'media-hub', 'food', 'bot'];
