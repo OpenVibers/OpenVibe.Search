@@ -219,6 +219,7 @@ const SOURCES = {
     food: ['OpenVibe.Food', 'Budget recipes, costed from the food list.'],
     bot: ['OpenVibe.Bot', 'The robots you can drive from a browser, and how to connect each.'],
     shoes: ['OpenVibe.Shoes', 'Shoe models with every store\'s price, the history and the size curve.'],
+    tours: ['OpenVibe.Tours', 'Places to see, cities and self-guided walks, from OpenStreetMap and Wikivoyage.'],
 };
 const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
 // What a count of each kind is called on the front page ("10,621 job listings"); a kind not named here is "documents".
@@ -231,6 +232,7 @@ const KIND_WORDS = {
     'quest/quest': ['quest', 'quests'], 'bot/model': ['robot model', 'robot models'], 'wiki/page': ['wiki page', 'wiki pages'], 'news/story': ['story', 'stories'],
     'deals/offer': ['deal', 'deals'], 'games/world': ['creator world', 'creator worlds'], 'media-hub/video': ['video', 'videos'], 'food/recipe': ['recipe', 'recipes'],
     'shoes/shoe': ['shoe model', 'shoe models'],
+    'tours/place': ['place to see', 'places to see'], 'tours/city': ['travel city', 'travel cities'], 'tours/route': ['self-guided walk', 'self-guided walks'],
 };
 const fmt = (n) => Number(n).toLocaleString('en-US');
 const kindWords = (owner, type, n) => { const w = KIND_WORDS[`${owner}/${type}`]; return `${fmt(n)} ${w ? w[n === 1 ? 0 : 1] : n === 1 ? 'document' : 'documents'}`; };
