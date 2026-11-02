@@ -230,7 +230,7 @@ const ICON_OF = { sources: 'docs', 'media-hub': 'video' };
 const KIND_WORDS = {
     'work/job': ['job listing', 'job listings'], 'community/paste': ['paste', 'pastes'], 'community/thread': ['forum thread', 'forum threads'],
     'reviews/entity': ['place or product', 'places and products'], 'rent/city': ['rental city page', 'rental city pages'], 'rent/homes_city': ['homes city page', 'homes city pages'],
-    'live/vod': ['recorded stream', 'recorded streams'], 'live/clip': ['clip', 'clips'], 'live/channel': ['channel', 'channels'], 'host/tld': ['domain ending', 'domain endings'],
+    'live/vod': ['recorded stream', 'recorded streams'], 'live/clip': ['clip', 'clips'], 'live/channel': ['channel', 'channels'], 'live/doc': ['guide', 'guides'], 'host/tld': ['domain ending', 'domain endings'],
     'host/plan': ['hosting plan', 'hosting plans'], 'host/provider': ['hosting provider', 'hosting providers'], 'tools/tool': ['tool', 'tools'], 'coupons/coupon': ['coupon', 'coupons'],
     'coupons/merchant': ['store', 'stores'], 'help/article': ['help article', 'help articles'], 'blog/post': ['blog post', 'blog posts'], 'inventory/definition': ['item', 'items'],
     'quest/quest': ['quest', 'quests'], 'bot/model': ['robot model', 'robot models'], 'wiki/page': ['wiki page', 'wiki pages'], 'news/story': ['story', 'stories'],
@@ -707,4 +707,4 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
     return router;
 }
 
-module.exports = { pageRouter, setRelease, TEXT_INDEX, robotsTxt, llmsTxt, llmsFullTxt, sitemapXml, homeJsonLd };
+module.exports = { pageRouter, setRelease, TEXT_INDEX, robotsTxt, llmsTxt, llmsFullTxt, sitemapXml, homeJsonLd, kindOf };
