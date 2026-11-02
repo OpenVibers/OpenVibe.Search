@@ -156,6 +156,17 @@ t('helper tiers and dedupe agree with the SQL order', () => {
     assert.strictEqual(dedupeKey({ owner: 'live', title: ' Omar ' }), dedupeKey({ owner: 'LIVE', title: 'omar' }));
 });
 
+t('inside a tier, a title holding more of the query\'s words comes first ("central street harbin")', async () => {
+    await put({ owner: 'tours', type: 'place', id: 'plc-temple', title: 'Harbin Confucius Temple', summary: 'Temple in Harbin, China. A short walk from Central Street.', body: 'Harbin Confucius Temple\nCentral Street is near.', canonical_url: 'https://openvibe.tours/place/plc-temple' });
+    await put({ owner: 'tours', type: 'place', id: 'plc-central', title: 'Central Street (中央大街)', summary: 'Attraction in Harbin, China.', body: 'Central Street (中央大街)\nAttraction in Harbin, China.', canonical_url: 'https://openvibe.tours/place/plc-central' });
+    const r = await request(svc.base, 'GET', '/api/v1/search?q=central%20street%20harbin&limit=10');
+    assert.strictEqual(r.status, 200, r.text);
+    assert.ok(indexOf(r, 'plc-central') >= 0 && indexOf(r, 'plc-central') < indexOf(r, 'plc-temple'), `two title words before one: ${ids(r).join(', ')}`);
+    const { titleWords } = require('../server/ranking');
+    assert.strictEqual(titleWords({ title: 'Central Street (中央大街)' }, { words: ['central', 'street', 'harbin'] }), 2);
+    assert.strictEqual(titleWords({ title: 'a b c d e f' }, { words: ['a', 'b', 'c', 'd', 'e', 'f'] }), 4, 'capped');
+});
+
 t('close', async () => { await svc.stop(); });
 
 t.run();

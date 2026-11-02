@@ -120,6 +120,20 @@ function textMatches(text, match) {
     return match.words.some((word, i) => ts.some((token) => wordMatches(token, word, Boolean(match.prefix && i === match.words.length - 1))));
 }
 
+// Inside a field tier, a title that holds more of the query's words comes first, up to TITLE_WORDS_MAX of them:
+// "central street harbin" put "Harbin Confucius Temple" (one word) above "Central Street (中央大街)" (two), because
+// both titles matched and relevance decided (production, 2026-11-02). Capped so it never outweighs the half tier a
+// question's answer gets (the engine's 50 against 10 a word).
+const TITLE_WORDS_MAX = 4;
+
+/** How many of the query's words the title holds (the last a prefix when the query says so), at most TITLE_WORDS_MAX. */
+function titleWords(doc, match) {
+    if (!doc || !match || !Array.isArray(match.words) || !match.words.length) return 0;
+    const ts = tokens(doc.title);
+    const n = match.words.filter((word, i) => ts.some((t) => wordMatches(t, word, Boolean(match.prefix && i === match.words.length - 1)))).length;
+    return Math.min(TITLE_WORDS_MAX, n);
+}
+
 /** 3 when the title matches, 2 the summary, 1 the body, 0 no text field (a vector-only hit). */
 function fieldTier(doc, match) {
     if (!doc) return 0;
@@ -214,7 +228,7 @@ function coverage(doc, match) {
 }
 
 module.exports = {
-    isQuestion, questionMatch, contentWords, coverage, FIELD_FACTORS,
+    isQuestion, questionMatch, contentWords, coverage, FIELD_FACTORS, titleWords, TITLE_WORDS_MAX,
     SITE_ALIASES, fold, words, tokens, siteHosts, siteOnlyQuery, siteUrlPattern, urlBelongsToSites,
     textMatches, fieldTier, docTier, isThin, dedupeKey,
 };
