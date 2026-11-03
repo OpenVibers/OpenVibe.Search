@@ -58,6 +58,17 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
 
     // This site's own pinned copy of the OpenVibe Frame's browser files (openvibe-shared/serve).
     app.use('/shared', require('openvibe-shared/serve').handler());
+    // Terms, Privacy and DMCA in this site's own words (openvibe-shared/legal, profile 'public'; 11-03: the footer's
+    // legal links answered 404 here). The facts must match the code: change both together.
+    const legal = require('openvibe-shared/legal');
+    app.get(legal.PATHS, legal.handler({
+        "host": "search.openvibe.network",
+        "name": "Search.OpenVibe.Network",
+        "id": "search",
+        "service": "search",
+        "profile": "public",
+        "what": "One search box over what the network's services have published: streams, clips, pastes, wiki pages, news and more, from OpenVibe's own index."
+    }));
     app.use(webhookRouter({ config, db, store, outbox, accountData, accountSend, log, now }));
 
     app.use('/api', express.json({ limit: config.maxBodyBytes, type: ['application/json', 'application/*+json'] }));
