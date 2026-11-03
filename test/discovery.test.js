@@ -130,6 +130,12 @@ t('the agent layer: manifest, twins, and the pages that name them', async () => 
     assert.strictEqual(d.home, 'https://search.openvibe.network');
     assert.strictEqual(d.api, 'https://search.openvibe.network/api/v1');
     assert.deepStrictEqual(d.policy.auth, ['none', 'Network OIDC']);
+    // The OpenAPI document and the MCP server it names are the ones this service answers (AGT-2).
+    assert.strictEqual(d.openapi, 'https://search.openvibe.network/openapi.json');
+    assert.deepStrictEqual([d.mcp.url, d.mcp.transport], ['https://search.openvibe.network/mcp', 'streamable-http']);
+    const init = await request(svc.base, 'POST', '/mcp', { body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } } });
+    assert.strictEqual(init.status, 200, 'the named MCP endpoint answers an initialize');
+    assert.ok(/"protocolVersion"/.test(init.text));
     // A twin of the front page and of the update log, from the pages' own render. The twin's canonical is the
     // manifest's home (the site's public address), not the test server's own base URL.
     for (const [p, canonical] of [['/index.md', 'https://search.openvibe.network/'], ['/updates.md', 'https://search.openvibe.network/updates']]) {
