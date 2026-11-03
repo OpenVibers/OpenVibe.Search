@@ -30,10 +30,12 @@ t('GET /llms.txt: what the site is, its public pages and its public endpoints, c
     assert.match(r.headers.get('content-type'), /text\/plain/);
     assert.strictEqual(r.headers.get('cache-control'), 'public, max-age=3600, stale-while-revalidate=3600');
     assert.match(r.text, /^# OpenVibe\.Search/m);
-    assert.ok(r.text.includes(`- [Search](${origin()}/)`), 'the front page');
-    assert.ok(r.text.includes(`(${origin()}/updates)`), 'the update log');
+    assert.ok(r.text.includes(`- [Search](${origin()}/index.md)`), 'the front page');
+    assert.ok(r.text.includes(`(${origin()}/updates.md)`), 'the update log');
     assert.ok(r.text.includes(`(${origin()}/api/v1/search?q=)`), 'the public query API');
     assert.ok(r.text.includes(`(${origin()}/sitemap.xml)`));
+    assert.ok(r.text.includes('\n## Optional\n'), 'llms.txt has an Optional section');
+    assert.ok(r.text.includes('MCP server: POST https://search.openvibe.network/mcp (JSON-RPC 2.0)'), 'MCP endpoint is folded into the note');
     // Nothing private or per-user: no saved searches, no owner API, no Events webhook.
     assert.ok(!/saved-searches|\/api\/v1\/owners|\/internal\/events/.test(r.text));
 });

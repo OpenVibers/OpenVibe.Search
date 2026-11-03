@@ -126,24 +126,23 @@ function llmsTxt(origin) {
     return seo.llmsTxt({
         name: SITE_NAME,
         summary: `The search service of the OpenVibe network: one permission-aware index over what the network's services have published. ${SITE_DESCRIPTION}`,
-        details: 'The index holds only what the services have sent so far (Alpha: it is young). Anonymous callers see public, published, indexable documents only; a browser with an ov_token cookie also gets that person\'s own restricted matches. Private, draft and deleted documents are never listed or returned, and a document that is removed or made private leaves the results at once. Result pages are noindex; this file lists pages and public endpoints only, never a person\'s saved searches or the owner API.',
+        details: 'The index holds only what the services have sent so far (Alpha: it is young). Anonymous callers see public, published, indexable documents only; a browser with an ov_token cookie also gets that person\'s own restricted matches. Private, draft and deleted documents are never listed or returned, and a document that is removed or made private leaves the results at once. Result pages are noindex; this file lists pages and public endpoints only, never a person\'s saved searches or the owner API. MCP server: POST https://search.openvibe.network/mcp (JSON-RPC 2.0): agents call openvibe_search and openvibe_search_providers.',
+        markdown: true,
+        base: origin,
         sections: [
             { title: 'Pages', links: [
                 { title: 'Search', url: `${origin}/`, note: 'the search page; ?q= and ?owner=/?type= search, results are noindex' },
-                { title: 'What shipped', url: `${origin}/updates`, note: "the site's update log" },
             ] },
-            { title: 'Machine-readable', links: [
-                { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
-                { title: 'MCP endpoint', url: `${origin}/mcp`, note: 'Streamable HTTP MCP (JSON-RPC 2.0): agents call openvibe_search and openvibe_search_providers' },
-                { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
-                { title: 'Sitemap', url: `${origin}/sitemap.xml` },
-                { title: 'robots.txt', url: `${origin}/robots.txt` },
-                { title: 'Release', url: `${origin}/release.json`, note: 'the deployed release manifest (JSON)' },
-            ] },
-            { title: 'The network', links: [
-                { title: 'OpenVibe.Network', url: 'https://openvibe.network/', note: 'accounts and the network directory' },
-                { title: 'Source', url: 'https://github.com/OpenVibers/OpenVibe.Search' },
-            ] },
+        ],
+        optional: [
+            { title: 'What shipped', url: `${origin}/updates`, note: "the site's update log" },
+            { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
+            { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
+            { title: 'Sitemap', url: `${origin}/sitemap.xml` },
+            { title: 'robots.txt', url: `${origin}/robots.txt` },
+            { title: 'Release', url: `${origin}/release.json`, note: 'the deployed release manifest (JSON)' },
+            { title: 'OpenVibe.Network', url: 'https://openvibe.network/', note: 'accounts and the network directory' },
+            { title: 'Source', url: 'https://github.com/OpenVibers/OpenVibe.Search' },
         ],
     });
 }
