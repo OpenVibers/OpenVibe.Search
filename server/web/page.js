@@ -133,11 +133,14 @@ function llmsTxt(origin) {
             { title: 'Pages', links: [
                 { title: 'Search', url: `${origin}/`, note: 'the search page; ?q= and ?owner=/?type= search, results are noindex' },
             ] },
+            // A JSON API is what an agent came for, not something to skip (AGT-5 review).
+            { title: 'API', links: [
+                { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
+                { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
+            ] },
         ],
         optional: [
             { title: 'What shipped', url: `${origin}/updates`, note: "the site's update log" },
-            { title: 'Search API', url: `${origin}/api/v1/search?q=`, note: 'JSON results; anonymous = public documents only' },
-            { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, note: 'title suggestions (JSON)' },
             { title: 'Sitemap', url: `${origin}/sitemap.xml` },
             { title: 'robots.txt', url: `${origin}/robots.txt` },
             { title: 'Release', url: `${origin}/release.json`, note: 'the deployed release manifest (JSON)' },
