@@ -37,6 +37,8 @@ const NETWORK = 'https://openvibe.network';
 const CF_BEACON = 'https://static.cloudflareinsights.com', CF_REPORT = 'https://cloudflareinsights.com';
 // The Events realtime stream: release notifications (release-watch's EventSource, openvibe-shared 1.17).
 const EVENTS = 'https://openvibe.events';
+// The navbar's Messages count (OpenVibe.Chat /api/dm/unread, openvibe-shared 4.130.0).
+const CHAT = 'https://openvibe.chat';
 const shell = require('openvibe-shared/shell');
 const showcase = require('openvibe-shared/showcase');
 const { DEFAULT_EVENT_OWNERS } = require('../config');
@@ -58,7 +60,7 @@ const FOOTER_INIT = `window.addEventListener('DOMContentLoaded', function () { t
 // them by hash and still has no 'unsafe-inline'.
 const sha256 = (js) => `'sha256-${require('crypto').createHash('sha256').update(js, 'utf8').digest('base64')}'`;
 const INLINE = [...shell.scripts(FRAME).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).concat(FOOTER_INIT);
-const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')} 'inline-speculation-rules'; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS}; style-src 'self' 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; font-src 'self' ${NETWORK}; manifest-src 'self'; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
+const CSP = `default-src 'none'; script-src 'self' ${NETWORK} ${CF_BEACON} ${INLINE.map(sha256).join(' ')} 'inline-speculation-rules'; connect-src 'self' ${NETWORK} ${CF_REPORT} ${EVENTS} ${CHAT}; style-src 'self' 'unsafe-inline' ${NETWORK}; img-src 'self' data: https:; font-src 'self' ${NETWORK}; manifest-src 'self'; frame-src ${NETWORK}; form-action 'self' ${NETWORK}; base-uri 'none'; frame-ancestors 'none'`;
 const ICON_LINKS = require('openvibe-shared/app-icon').headTags({ site: 'network', iconBase: `${NETWORK}/assets` }).split('\n').filter((l) => l.startsWith('<link') && !/rel="manifest"/.test(l)).join('\n');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
