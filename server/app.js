@@ -25,6 +25,7 @@ const pkg = require('../package.json');
 
 function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, accountData = null, accountSend = null, fetchImpl = globalThis.fetch, log = console, now }) {
     const app = express();
+    app.use('/auth', require('./web-sso').webSso({ config, fetchImpl, log }));
     app.disable('x-powered-by');
     app.set('trust proxy', 'loopback');
     app.set('query parser', 'extended');
