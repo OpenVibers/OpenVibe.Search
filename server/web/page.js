@@ -49,7 +49,7 @@ const LINKS = [{ label: 'Search', href: '/', icon: 'fa-magnifying-glass' }];
 // The shell options every page shares: the navbar it boots and the noscript nav and footer it renders.
 const FRAME = {
     name: SITE_NAME, lang: 'en', navLinks: LINKS,
-    navbar: { service: 'search', apiBase: NETWORK, links: LINKS },
+    navbar: { service: 'search', apiBase: NETWORK, sessionUrl: '/auth/me', loginUrl: '/auth/login?next={path}', logoutUrl: '/auth/logout?next={url}', silentLogin: '/auth/login?silent=1&next={url}', links: LINKS },
     footer: { service: 'search', variant: 'compact', updates: '/updates' },
 };
 const FOOTER = { service: 'search', variant: 'compact', mount: '#ov-footer', brandName: SITE_NAME, updates: '/updates' };
