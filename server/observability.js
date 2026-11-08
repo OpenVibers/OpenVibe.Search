@@ -25,10 +25,11 @@ const EXPOSURE_NAMES = Object.fromEntries(Object.entries(EXPOSURE).map(([name, n
 /**
  * A read kept for keepMs and shared by callers at the same moment. The document and index counts walk every row (35 ms
  * and 11 ms, asked by two gauges on each scrape and by the readiness check: 203k calls each from 09-28 to 11-02), and
- * the store totals in the readiness details another 52 ms. 30 s in production, every call elsewhere (tests read their
- * own writes).
+ * the store totals in the readiness details another 52 ms. A 30 s keep was shorter than the ~23 s between scrapes, so
+ * on 2026-11-08 it still ran 3,463 times (126 ms mean; the index-only scan fetches 85k heap pages): 120 s in
+ * production, every call elsewhere (tests read their own writes).
  */
-const COUNTS_MS = process.env.NODE_ENV === 'production' ? 30_000 : 0;
+const COUNTS_MS = process.env.NODE_ENV === 'production' ? 120_000 : 0;
 function kept(read, keepMs = COUNTS_MS, now = () => Date.now()) {
     if (!(keepMs > 0)) return read;
     let hold = null;
