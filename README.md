@@ -3,6 +3,9 @@
 > Permission-aware discovery for the network: the canonical index document, event-fed indexing,
 > an ACL-filtered query API, and deletion/visibility propagation.
 
+**Docs:** https://openvibe.services · **For AI:** https://openvibe.network/llms.txt
+**Run it:** `npm ci && npm run dev` (Node 22 or newer) · **Tests:** `npm test`
+
 **Status:** alpha (roadmap Wave 14). Runs on the production host (127.0.0.1:4710, since 2026-09-23)
 and is fed through Events; on 2026-10-10 the index held, per the plan record, 1976 work jobs, 51 help articles and 70 inventory items (2097 documents) plus wiki tombstones; how many are public was not measured.  
 **Domain:** `search.openvibe.network`, served by this repository's vhost
