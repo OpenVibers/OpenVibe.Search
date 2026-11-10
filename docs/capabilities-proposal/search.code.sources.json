@@ -1,0 +1,22 @@
+{
+  "id": "search.code.sources",
+  "version": "1.0",
+  "owner": "search",
+  "status": "active",
+  "visibility": "first-party",
+  "description": "Read the code-source registry and switch a source on or off: the owner console's list, with the key's environment variable name and whether a value is configured (never the value), the quota and health. The public code query itself needs no capability; this one is the operator side.",
+  "permissions": [
+    "search:manage"
+  ],
+  "resourceConstraints": [
+    "none"
+  ],
+  "quotaClass": "search-owner",
+  "events": [],
+  "implementedBy": [
+    "GET /api/v1/code/sources",
+    "PUT /api/v1/code/sources/:id",
+    "GET /console/code-sources",
+    "POST /console/code-sources/:id"
+  ]
+}

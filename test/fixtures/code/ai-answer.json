@@ -1,0 +1,20 @@
+{
+  "run": {
+    "id": "run_answer",
+    "status": "succeeded",
+    "output": {
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "`createSearcher` is defined in server/api/query.js and builds the searcher object [1]. It is a small factory in the public query API [1]."
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "model": "deepseek-flash"
+    },
+    "usage": { "tokens_in": 900, "tokens_out": 60, "cost_usd": 0.00028 }
+  }
+}

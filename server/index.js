@@ -22,6 +22,9 @@ const { createSavedSearches } = require('./saved');
 const { createSearcher } = require('./api/query');
 const { createNetworkPush } = require('./network-push');
 const { createSavedNotifier } = require('./saved-notifier');
+const { createCodeRegistry } = require('./code/registry');
+const { createCodeSearch } = require('./code/search');
+const { createCodeDeep } = require('./code/deep');
 const { createApp } = require('./app');
 const accountDataLib = require('./account-data');
 const { createNetworkSender, startSubscriptions } = require('openvibe-sdk/account-data');
@@ -59,6 +62,11 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const embeddingClient = givenEmbeddings || createEmbeddingClient({ config, fetchImpl, now, log });
     const embedder = givenEmbedder || createEmbedder({ db, vectors: vectorStore, embeddings: embeddingClient, config, now, log });
     const searcher = createSearcher({ config, store, engine, vectorStore, embeddings: embeddingClient, now });
+    // Code search sources (server/code): the registry persists the console's switches; the deep mode
+    // spends at most two AI runs per signed-in question and is off when the AI client secret is unset.
+    const codeRegistry = await createCodeRegistry({ config, db, fetchImpl, now, log }).load();
+    const codeSearch = createCodeSearch({ config, registry: codeRegistry, now });
+    const codeDeep = createCodeDeep({ config, registry: codeRegistry, search: codeSearch, fetchImpl, now, log });
     // Saved-search notifications through Network: off unless SEARCH_SAVED_NOTIFY=1 with the `search` client's secret.
     const notifier = createSavedNotifier({
         config, saved, searcher, now, log,
@@ -66,7 +74,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     });
     const accountData = accountDataLib.create({ db, log });
     const accountSend = config.oauth.clientSecret ? createNetworkSender({ networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret }) : null;
-    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend });
+    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend, codeRegistry, codeSearch, codeDeep });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
@@ -120,7 +128,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
 
     return {
         config, db, engine, store, outbox, purges, purger, saved, searcher, notifier, jwks, keyLoaded, auth, app, server, close,
-        queryCache, vectorStore, embeddingClient, embedder, fabric: app.locals.fabric,
+        queryCache, vectorStore, embeddingClient, embedder, fabric: app.locals.fabric, codeRegistry, codeSearch, codeDeep,
     };
 }
 

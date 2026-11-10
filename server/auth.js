@@ -22,6 +22,7 @@ const { serviceAuth, capabilities, http, ids } = require('openvibe-contracts');
 const CAPS = Object.freeze({
     write: 'search.document.write',
     delegate: 'search.query.delegate',
+    codeSources: 'search.code.sources',
 });
 const PROPOSED = new Set(Object.values(CAPS));
 

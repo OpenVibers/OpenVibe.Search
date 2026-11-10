@@ -15,7 +15,8 @@
   "ready": "/api/ready",
   "capabilities": [
     "search.document.write",
-    "search.query.delegate"
+    "search.query.delegate",
+    "search.code.sources"
   ],
   "eventsProduced": [
     "search.document.indexed",

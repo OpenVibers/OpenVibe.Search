@@ -117,6 +117,27 @@ route('get', '/query/providers', {
     responses: { 200: json('Providers', { type: 'object', required: ['providers'], properties: { providers: arrayOf({ type: 'object' }) } }), ...errors([429]) },
 });
 
+// ── Code search ──────────────────────────────────────────────────────────────────────────────
+route('get', '/search/code', {
+    operationId: 'searchCode', summary: 'Search code across the hosted sources', tags: ['code'], security: ANONYMOUS,
+    description: 'Published, public code only. GitHub, Sourcegraph public and OpenVibe Git are merged and de-duplicated; exact identifier matches rank first, then stars and recency. Visible to any origin.',
+    parameters: [
+        query('q', str({ maxLength: 200 }), 'The code query (an identifier, call or distinctive phrase)'),
+        query('lang', str({ maxLength: 40 }), 'Only this language'), query('repo', str({ maxLength: 200 }), 'Only a repository matching this name'),
+        query('licence', str({ maxLength: 40 }), 'Only this SPDX licence'), query('limit', integer({ minimum: 1, maximum: 50 }), 'Page size'),
+        query('cursor', str(), 'The next_cursor from the previous page'),
+    ],
+    responses: { 200: json('Merged code results and one row per source', ref('CodePage')), ...errors() },
+});
+route('post', '/search/code/deep', {
+    operationId: 'deepCodeSearch', summary: 'A cited answer over code, using two metered AI runs', tags: ['code'], security: PERSON,
+    description: 'Signed in only. A model rewrites the question into at most five code queries, the top files are fetched, and a second cheap model answers with file:line citations. The response carries the real tokens and cost of the runs.',
+    requestBody: body({ type: 'object', required: ['q'], properties: {
+        q: str({ maxLength: 200 }), lang: str({ maxLength: 40 }), repo: str({ maxLength: 200 }), licence: str({ maxLength: 40 }),
+    } }),
+    responses: { 200: json('The answer, its citations, the queries and the run cost', ref('CodeDeep')), ...errors([400, 401, 403, 429, 502, 503]) },
+});
+
 // ── Saved searches ───────────────────────────────────────────────────────────────────────────
 route('get', '/saved-searches', {
     operationId: 'listSavedSearches', summary: 'The caller\'s saved searches, newest first', tags: ['saved-searches'], security: PERSON,
@@ -164,7 +185,7 @@ function openapi() {
             contact: { name: 'OpenVibers', url: 'https://github.com/OpenVibers/OpenVibe.Search', email: 'contact@openvibe.network' },
         },
         servers: [{ url: SITE }],
-        tags: ['query', 'fabric', 'saved-searches'].map((name) => ({ name })),
+        tags: ['query', 'fabric', 'code', 'saved-searches'].map((name) => ({ name })),
         components: {
             securitySchemes: {
                 bearer: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'A Network user JWT (people) or a service token for audience openvibe.search carrying search.query.delegate (acting for X-OV-Subject)' },
@@ -180,6 +201,28 @@ function openapi() {
                 } },
                 Suggestion: { type: 'object', required: ['owner', 'type', 'id', 'title'], properties: {
                     owner, type, id, title: str(), canonical_url: str({ format: 'uri' }),
+                } },
+                CodeLine: { type: 'object', properties: { number: nullable('integer'), text: str(), match: { type: 'boolean' } } },
+                CodeResult: { type: 'object', required: ['source', 'repo', 'path', 'permalink'], properties: {
+                    source: str(), sources: arrayOf(str()), repo: str(), repo_url: nullable('string'), path: str(), ref: nullable('string'),
+                    line_start: nullable('integer'), line_end: nullable('integer'), lines: arrayOf(ref('CodeLine')),
+                    language: nullable('string'), stars: integer(), licence: nullable('string'), last_commit_at: nullable('string'),
+                    last_commit_source: nullable('string'), permalink: str({ format: 'uri' }), exact_identifier: { type: 'boolean' },
+                } },
+                CodeSource: { type: 'object', properties: {
+                    id: str(), kind: str({ const: 'code' }), label: str(), cost: str(),
+                    key: { type: 'object', properties: { name: str(), required: { type: 'boolean' }, configured: { type: 'boolean' } } },
+                    quota: { type: 'object', properties: { per_minute: nullable('integer'), window: str() } },
+                    enabled: { type: 'boolean' }, health: str(), order: integer(), calls: integer(), failures: integer(),
+                    last_ok_at: nullable('string'), last_error_at: nullable('string'), last_error: nullable('string'), last_latency_ms: nullable('integer'),
+                } },
+                CodePage: { type: 'object', required: ['query', 'results', 'sources', 'next_cursor'], properties: {
+                    query: { type: 'object' }, results: arrayOf(ref('CodeResult')), sources: arrayOf(ref('CodeSource')),
+                    next_cursor: nullable('string'), took_ms: integer(),
+                } },
+                CodeDeep: { type: 'object', required: ['answer', 'citations', 'route'], properties: {
+                    query: { type: 'object' }, queries: arrayOf(str()), answer: str(), citations: arrayOf({ type: 'object' }),
+                    results: arrayOf(ref('CodeResult')), route: { type: 'object' },
                 } },
                 SavedSearch: { type: 'object', required: ['id', 'name', 'q', 'filters'], properties: {
                     id: str(), name: str(), q: str(), filters: { type: 'object' },

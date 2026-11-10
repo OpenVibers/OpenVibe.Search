@@ -1,0 +1,7 @@
+{
+  "ref": "abc123",
+  "results": [
+    "server/api/query.js:5:function createSearcher({ config, store, engine }) {"
+  ],
+  "truncated": false
+}

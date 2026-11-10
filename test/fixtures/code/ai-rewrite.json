@@ -1,0 +1,20 @@
+{
+  "run": {
+    "id": "run_rewrite",
+    "status": "succeeded",
+    "output": {
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "[\"createSearcher\",\"createSearcher config store engine\",\"function createSearcher\"]"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "model": "deepseek-flash"
+    },
+    "usage": { "tokens_in": 120, "tokens_out": 40, "cost_usd": 0.00012 }
+  }
+}

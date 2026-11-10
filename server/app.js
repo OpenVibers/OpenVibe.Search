@@ -8,6 +8,8 @@ const { createRelease } = require('openvibe-shared/release');
 const { createSearchReadiness, registerSearchGauges } = require('./observability');
 const { documentsRouter } = require('./api/documents');
 const { queryRouter, createSearcher } = require('./api/query');
+const { codeRouter } = require('./api/code');
+const { createCodeConsole } = require('./web/code-console');
 const { fabricRouter } = require('./api/fabric');
 const { mcpRouter } = require('./api/mcp');
 const protectedResource = require('./protected-resource');
@@ -23,7 +25,7 @@ const { createIndexNow } = require('openvibe-shared/indexnow');
 const openapi = require('./openapi');
 const pkg = require('../package.json');
 
-function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, accountData = null, accountSend = null, fetchImpl = globalThis.fetch, log = console, now }) {
+function createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher: givenSearcher = null, notifier = null, vectorStore = null, embeddings = null, accountData = null, accountSend = null, fetchImpl = globalThis.fetch, log = console, now, codeRegistry = null, codeSearch = null, codeDeep = null }) {
     const app = express();
     app.use('/auth', require('./web-sso').webSso({ config, fetchImpl, log }));
     app.disable('x-powered-by');
@@ -102,6 +104,11 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     app.use(documentsRouter({ store, auth, db, outbox, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(fabricRouter({ fabric, auth, limits }));
+    // Code search over the hosted sources, and the owner console that switches them (server/code).
+    if (codeRegistry && codeSearch && codeDeep) {
+        app.use(codeRouter({ auth, limits, registry: codeRegistry, search: codeSearch, deep: codeDeep }));
+        app.use(createCodeConsole({ config, auth, registry: codeRegistry }));
+    }
     // MCP over Streamable HTTP: the same fabric, viewer and search.fabric limit as the query route above.
     app.use(mcpRouter({ fabric, auth, limits, config }));
     app.use(savedRouter({ config, saved, searcher, auth, limits }));

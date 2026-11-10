@@ -1,0 +1,7 @@
+// A library facade.
+'use strict';
+
+const createSearcherFactory = () => createSearcher;
+const makeSearcher = (options) => options;
+
+module.exports = { createSearcherFactory, makeSearcher };

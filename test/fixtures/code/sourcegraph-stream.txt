@@ -1,0 +1,8 @@
+event: matches
+data: [{"type":"content","path":"server/api/query.js","repository":"github.com/OpenVibers/OpenVibe.Search","repositoryID":1,"commit":"abc123","repoStars":12,"repoLastFetched":"2026-11-09T10:05:00Z","lineMatches":[{"line":"function createSearcher({ config, store, engine }) {","lineNumber":4,"offsetAndLengths":[[9,14]]}],"language":"JavaScript"},{"type":"content","path":"src/index.js","repository":"github.com/acme/lib","repositoryID":2,"commit":"def456","repoStars":100,"repoLastFetched":"2026-11-08T09:00:00Z","lineMatches":[{"line":"const createSearcherFactory = () => createSearcher;","lineNumber":4,"offsetAndLengths":[[6,20]]}],"language":"JavaScript"}]
+
+event: progress
+data: {"done":true,"matchCount":2,"durationMs":12}
+
+event: done
+data: {}

@@ -1,0 +1,31 @@
+{
+  "repositories": [
+    {
+      "full_name": "openvibers/openvibe.search",
+      "visibility": "public",
+      "default_branch": "main",
+      "language": "JavaScript",
+      "stars": 0,
+      "github": { "stars": 12 },
+      "pushed_at": "2026-11-09T10:00:00Z"
+    },
+    {
+      "full_name": "openvibers/openvibe.codes",
+      "visibility": "public",
+      "default_branch": "main",
+      "language": "JavaScript",
+      "stars": 0,
+      "github": { "stars": 3 },
+      "pushed_at": "2026-11-08T10:00:00Z"
+    },
+    {
+      "full_name": "secret/private",
+      "visibility": "private",
+      "default_branch": "main",
+      "language": "JavaScript",
+      "stars": 999,
+      "github": { "stars": 999 },
+      "pushed_at": "2026-11-09T11:00:00Z"
+    }
+  ]
+}
