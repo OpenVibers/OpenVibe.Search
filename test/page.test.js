@@ -90,7 +90,7 @@ t('the front page is a search form, indexable, no-store, with a strict CSP', asy
     assert.deepStrictEqual(ld.map((o) => o['@type']), ['WebSite', 'WebApplication', 'ItemList', 'FAQPage', 'Organization', 'WebPage']);   // Organization: Shared 4.13 headTags
     assert.strictEqual(ld[0].potentialAction.target.urlTemplate.endsWith('/?q={search_term_string}'), true);
     assert.ok(ld[0].url.endsWith('/') && ld[1].url.endsWith('/'));
-    assert.ok(r.text.includes('<div id="navbar-mount"></div>') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame');
+    assert.ok(r.text.includes('<div id="navbar-mount"') && r.text.includes('id="ov-footer"'), 'the OpenVibe Frame (4.190.0: the mount wraps the server-rendered nav, with the site name\u2019s dropdown inside)');
     assert.ok(r.text.includes('data-ov-shipped="latest" data-service="search" href="/updates"'), 'what shipped');
     // Boost (openvibe-shared 2.2.0): every page carries the release marker and the swap script, and <main id="main">
     // is the element that changes, so a same-release move happens in place (any doubt is a normal load).
