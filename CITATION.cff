@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use OpenVibe.Search in research or a product, cite it as below."
+title: openvibe-search
+type: software
+authors:
+  - name: OpenVibe
+    alias: OpenVibers
+    website: https://openvibe.network
+repository-code: https://github.com/OpenVibers/OpenVibe.Search
+url: https://openvibe.network
+license: AGPL-3.0-only
+abstract: "A permission-aware search index for the OpenVibe network: ACL-filtered queries and deletion propagation."
+keywords:
+  - openvibe
+  - acl
+  - full-text-search
+  - indexing
+  - nodejs
