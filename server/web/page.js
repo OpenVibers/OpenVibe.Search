@@ -84,6 +84,8 @@ const TEXT_INDEX = [
     'GET    /?q=                                                   search page (HTML)',
     'GET    /api/v1/search?q=&owner=&type=&facet.<key>=&cursor=   query (anonymous: public only)',
     'GET    /api/v1/suggest?q=                                     title suggestions',
+    'GET    /api/v1/search/code?q=&lang=&repo=&licence=&limit=     code search (GitHub, Sourcegraph, our forge)',
+    'POST   /api/v1/search/code/deep                               cited code answer (signed in, metered AI)',
     'GET    /api/v1/documents/:owner/:type/:id                     one document the caller may see',
     'GET    /api/v1/saved-searches, POST, GET/DELETE /:id, GET /:id/results   saved searches (signed in)',
     'PUT    /api/v1/documents/:owner/:type/:id                     index (owner, search.document.write)',
@@ -118,7 +120,7 @@ function robotsTxt(origin) {
         '# openvibe.search automated-consumer policy: search engines and AI crawlers may read the front',
         '# page and the update log. Result pages carry their own X-Robots-Tag: noindex, and the API, the',
         '# Events webhook and owner writes are not for crawling.',
-        seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/'] }),
+        seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/', '/console'] }),
         `# Agent manifest: ${origin}/.well-known/agent.json`,
     ].join('\n');
 }
@@ -176,6 +178,8 @@ function llmsFullTxt(origin) {
             { title: 'Public JSON endpoints', pages: [
                 { title: 'Search API', url: `${origin}/api/v1/search?q=`, text: 'JSON results; anonymous callers see public, published, indexable documents only.' },
                 { title: 'Suggest API', url: `${origin}/api/v1/suggest?q=`, text: 'JSON title suggestions for the given prefix.' },
+                { title: 'Code search API', url: `${origin}/api/v1/search/code?q=`, text: 'Merged, de-duplicated code results from GitHub, Sourcegraph public and OpenVibe Git; public code only.' },
+                { title: 'Deep code search API', url: `${origin}/api/v1/search/code/deep`, text: 'A cited answer over code for a signed-in person, using two metered AI runs (POST).' },
                 { title: 'Health', url: `${origin}/api/health`, text: 'Liveness: status, service and version (JSON).' },
                 { title: 'Readiness', url: `${origin}/api/ready`, text: 'Readiness of the database and the optional dependencies (JSON).' },
                 { title: 'Release', url: `${origin}/release.json`, text: 'The deployed release manifest (JSON).' },

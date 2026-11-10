@@ -1,0 +1,47 @@
+{
+  "total_count": 1,
+  "incomplete_results": false,
+  "items": [
+    {
+      "repository": {
+        "full_name": "OpenVibers/OpenVibe.Search",
+        "html_url": "https://github.com/OpenVibers/OpenVibe.Search",
+        "private": false,
+        "visibility": "public",
+        "language": "JavaScript",
+        "stargazers_count": 12,
+        "pushed_at": "2026-11-09T10:00:00Z",
+        "license": { "spdx_id": "AGPL-3.0" }
+      },
+      "file": {
+        "path": "server/api/query.js",
+        "sha": "abc123",
+        "html_url": "https://github.com/OpenVibers/OpenVibe.Search/blob/abc123/server/api/query.js"
+      },
+      "text_matches": [
+        {
+          "fragment": "function createSearcher({ config, store, engine }) {\n  return { run };",
+          "matches": [{ "text": "createSearcher", "indices": [9, 23] }]
+        }
+      ]
+    },
+    {
+      "repository": {
+        "full_name": "secret/private",
+        "html_url": "https://github.com/secret/private",
+        "private": true,
+        "visibility": "private",
+        "language": "JavaScript",
+        "stargazers_count": 999,
+        "pushed_at": "2026-11-09T10:00:00Z",
+        "license": null
+      },
+      "file": {
+        "path": "secret.js",
+        "sha": "private123",
+        "html_url": "https://github.com/secret/private/blob/private123/secret.js"
+      },
+      "text_matches": [{ "fragment": "createSearcher in a private repository" }]
+    }
+  ]
+}

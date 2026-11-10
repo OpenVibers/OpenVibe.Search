@@ -241,6 +241,34 @@ network or mine scope when it was the only one asked. The answer never contains 
 Asking `"answer": true` answers `answer: null` and adds an `answer` explain row: answers are not on
 yet.
 
+## Code search
+
+`GET /api/v1/search/code?q=&lang=&repo=&licence=&limit=&cursor=` merges public code from GitHub
+(`GITHUB_CODE_TOKEN`; 10 API requests/minute), Sourcegraph's public stream and our own forge
+(public repositories only; one `git grep` per repository, because the forge has no global code
+route). The same file at the same commit is one result; exact identifier matches rank first, then
+stars and recency. Every result is text with a `permalink` to the source's own https host; a private
+repository is dropped by the source, never just hidden at display. At most 50 results per page;
+`next_cursor` is bound to the filters. The route is public and limited per address/person (30 a
+minute, 600 an hour).
+
+`POST /api/v1/search/code/deep` `{q, lang?, repo?, licence?}` is for a signed-in person. A cheap
+model rewrites the question into at most five code queries, the top files are fetched, and a second
+cheap model answers with `file:line` citations. The budget is two AI runs per question, at most
+`SEARCH_CODE_DEEP_FILES` files and `SEARCH_CODE_DEEP_TOKENS` answer tokens; the response carries the
+runs' real tokens and `cost_usd`. It is `503 search.ai_unavailable` when the AI client secret or
+`SEARCH_CODE_AI_URL` is unset, and `SEARCH_CODE_DEEP=off` turns it off. AI runs are the metered
+`ai.complete` path (the default route is chosen by price and health, so the cheap model answers
+first).
+
+The sources are a small registry: one module per source with a manifest, a per-minute quota, health
+and an on/off switch. The owner console at `/console/code-sources` (Network `role:admin`/`role:owner`)
+shows each source's switch, key **name** (never its value), quota and health; the JSON is
+`GET /api/v1/code/sources` for a service token with `search.code.sources`, and
+`PUT /api/v1/code/sources/:id` `{enabled}` flips it. Switches live in `code_source_settings`
+(migration 0009) and survive a restart. How to add a source, with the test it must pass:
+[docs/code-sources.md](docs/code-sources.md).
+
 ## MCP
 
 The same fabric is a [Model Context Protocol](https://modelcontextprotocol.io) server over
@@ -358,6 +386,7 @@ Implemented here (the service manifest's `capabilities`):
 | `search.document.write` | `PUT/DELETE /api/v1/documents/:owner/:type/:id`, `/api/v1/owners/:owner/...` including the removal feed (own owner only) |
 | `search.query.delegate` | the query and saved-search routes, acting for `X-OV-Subject` |
 | `search.query.run` | `GET /api/v1/search`, `/api/v1/suggest`, `/api/v1/documents/:owner/:type/:id` as anyone: anonymous or with a person's Network token (no grant needed; a service token must hold `search.query.delegate`) |
+| `search.code.sources` | `GET/PUT /api/v1/code/sources`, `GET/POST /console/code-sources` (owner console) |
 
 Called elsewhere, as the service principal `search` (client credentials from OpenVibe.Network):
 
@@ -367,6 +396,7 @@ Called elsewhere, as the service principal `search` (client credentials from Ope
 | OpenVibe.Events | `events.subscription.manage` (`npm run subscribe`, once) | the HMAC-signed subscription to `*.index_document.*` that delivers index events |
 | OpenVibe.Network | `identity.subject.resolve` (audience `openvibe.network`) | saved-search notifications: a `usr_` subject to Network's user id (only with `SEARCH_SAVED_NOTIFY=1`) |
 | OpenVibe.Network | `network.notifications.push` (audience `openvibe.network`, own service `search`) | saved-search notifications: one notification per saved search with new hits |
+| OpenVibe.AI | `ai.run.create` (audience `openvibe.ai`, namespace `ai`) | deep code search: two `ai.complete` runs per signed-in question |
 
 Registered in `openvibe-contracts` with the service manifest (this repo pins v0.96.0);
 [server/auth.js](server/auth.js) decides them with the contracts grant rule, and CI runs
@@ -416,6 +446,10 @@ Never limited: the signed Events deliveries (`POST /internal/events`), `/api/hea
   after a push, a failed push retried, never twice, off without the flag and the secret
   (`test/saved-notify.test.js`, `test/network-push.test.js`)
 - the search page: public only, escaped, no-store, noindex results, paging (`test/page.test.js`)
+- code search: three sources merged and de-duplicated, exact identifier first, filters and cursor,
+  private repositories dropped, https permalinks, no key in an answer (`test/code-search.test.js`,
+  `test/code-sources.test.js`); deep mode signed-in, two AI runs at most, cited answer, real cost,
+  AI failure never partial (`test/code-deep.test.js`); the owner switch and console (`test/code-console.test.js`)
 - per-actor limits: 429 `rate_limited` with Retry-After per principal, person or address, another
   caller unaffected, deliveries and health never limited (`test/actor-limits.test.js`)
 
@@ -442,11 +476,15 @@ Reporting: [SECURITY.md](SECURITY.md). The rules the code keeps:
   results never carry the ACL, and every response is `no-store`. Saved searches store the query only.
 - **Network exposure.** The owner API, `/internal/events` and document writes are loopback-only in the
   vhost; `/metrics` answers direct loopback callers only; client addresses come from `$remote_addr`.
-- **Egress.** Search calls only OpenVibe.Network (keys, tokens, and with `SEARCH_SAVED_NOTIFY=1` identity resolve and notification push), OpenVibe.Events (`EVENTS_URL`) and,
-  when `CLOUDFLARE_PURGE_TOKEN` is set, the Cloudflare purge API. It never fetches a URL a user chose.
-- **Secrets.** `OV_OAUTH_CLIENT_SECRET`, `SEARCH_EVENTS_SECRET` and `CLOUDFLARE_PURGE_TOKEN` come from
-  the environment (`/etc/openvibe/search.env`, 0600) and are never stored or logged. Event deliveries
-  are HMAC-verified before anything is read.
+- **Egress.** Search calls only OpenVibe.Network (keys, tokens, and with `SEARCH_SAVED_NOTIFY=1` identity resolve and notification push), OpenVibe.Events (`EVENTS_URL`),
+  when `CLOUDFLARE_PURGE_TOKEN` is set the Cloudflare purge API, the three code-source hosts
+  (`api.github.com`/`raw.githubusercontent.com`, `SOURCEGRAPH_URL`, `FORGE_URL`), and OpenVibe.AI
+  (`SEARCH_CODE_AI_URL`) for deep code search. It never fetches a URL a user chose.
+- **Secrets.** `OV_OAUTH_CLIENT_SECRET`, `SEARCH_EVENTS_SECRET`, `CLOUDFLARE_PURGE_TOKEN`,
+  `GITHUB_CODE_TOKEN`, `SOURCEGRAPH_TOKEN` and `FORGE_TOKEN` come from the environment
+  (`/etc/openvibe/search.env`, 0600) and are never stored, returned or logged; the owner console shows
+  the variable name. A GitHub token for the code source should be a fine-grained public-only token.
+  Event deliveries are HMAC-verified before anything is read.
 
 ## Deploy
 

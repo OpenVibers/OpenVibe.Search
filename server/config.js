@@ -138,6 +138,46 @@ function load(env = process.env) {
             openIndexOwners: list(env.SEARCH_OPEN_INDEX_OWNERS, ['sources']),
         },
 
+        // Code search (server/code): hosted code indexes merged behind GET /api/v1/search/code, and a
+        // signed-in deep mode that spends at most two AI runs per question. Keys are server-side only
+        // (GITHUB_CODE_TOKEN, SOURCEGRAPH_TOKEN, FORGE_TOKEN); the owner console shows the variable names.
+        code: {
+            enabled: env.SEARCH_CODE !== 'off',
+            timeoutMs: Math.max(500, int(env.SEARCH_CODE_TIMEOUT_MS, 8000)),
+            cacheMs: Math.max(0, int(env.SEARCH_CODE_CACHE_MS, 60_000)),
+            github: {
+                api: strip(env.GITHUB_API_URL || 'https://api.github.com'),
+                token: String(env.GITHUB_CODE_TOKEN || '').trim(),
+                perMinute: Math.max(1, int(env.SEARCH_GITHUB_PER_MINUTE, 10)),
+            },
+            sourcegraph: {
+                url: strip(env.SOURCEGRAPH_URL || 'https://sourcegraph.com'),
+                token: String(env.SOURCEGRAPH_TOKEN || '').trim(),
+                perMinute: Math.max(1, int(env.SEARCH_SOURCEGRAPH_PER_MINUTE, 30)),
+            },
+            forge: {
+                url: strip(env.FORGE_URL || 'https://git.openvibe.codes'),
+                token: String(env.FORGE_TOKEN || '').trim(),
+                repos: list(env.FORGE_CODE_REPOS, []),
+                maxRepos: Math.max(1, int(env.SEARCH_FORGE_MAX_REPOS, 20)),
+                perMinute: Math.max(1, int(env.SEARCH_FORGE_PER_MINUTE, 60)),
+            },
+            deep: {
+                enabled: env.SEARCH_CODE_DEEP !== 'off',
+                // Same AI origin and service-token client as the Fabric's web ladder; the run API is
+                // ai.complete, which the router serves from the cheapest healthy model.
+                aiUrl: strip(env.SEARCH_CODE_AI_URL || env.OV_AI_INTERNAL_URL || AI_SERVICE.internalOrigin || 'https://ai.openvibe.services'),
+                audience: env.OV_AI_AUDIENCE || 'openvibe.ai',
+                scope: env.OV_AI_SCOPE || 'ai.run.create',
+                maxQueries: Math.max(3, Math.min(5, int(env.SEARCH_CODE_DEEP_QUERIES, 4))),
+                maxFiles: Math.max(1, Math.min(10, int(env.SEARCH_CODE_DEEP_FILES, 6))),
+                maxChars: Math.max(2000, int(env.SEARCH_CODE_DEEP_CHARS, 24000)),
+                maxAnswerTokens: Math.max(200, Math.min(1600, int(env.SEARCH_CODE_DEEP_TOKENS, 800))),
+                waitMs: Math.max(1000, int(env.SEARCH_CODE_DEEP_WAIT_MS, 25000)),
+                timeoutMs: Math.max(5000, int(env.SEARCH_CODE_DEEP_TIMEOUT_MS, 120000)),
+            },
+        },
+
         // Freshness weighting of full-text relevance (README "Ranking"):
         //   score = bm25 × (1 + weight × 2^(−age_days / halfLifeDays)); weight 0 turns it off.
         freshness: {

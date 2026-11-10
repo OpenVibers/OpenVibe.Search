@@ -1,0 +1,13 @@
+'use strict';
+// The public API of OpenVibe.Search: a search page and a query route.
+const { QueryError } = require('./errors');
+
+function createSearcher({ config, store, engine }) {
+    return { run };
+}
+
+function run() {
+    return { results: [] };
+}
+
+module.exports = { createSearcher };

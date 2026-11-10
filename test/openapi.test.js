@@ -47,6 +47,7 @@ const LEFT_OUT = new Set([
     'PUT /api/v1/documents/{owner}/{type}/{id}', 'DELETE /api/v1/documents/{owner}/{type}/{id}',
     'GET /api/v1/owners/{owner}/documents', 'GET /api/v1/owners/{owner}/documents/{type}/{id}',
     'GET /api/v1/owners/{owner}/rejections', 'GET /api/v1/owners/{owner}/removals',
+    'GET /api/v1/code/sources', 'PUT /api/v1/code/sources/{id}',
 ]);
 
 (async () => {
