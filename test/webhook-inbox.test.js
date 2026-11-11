@@ -27,7 +27,8 @@ t('signature v2 is required: a v1-only delivery and a stale v2 timestamp are ref
     assert.strictEqual(v1.status, 401, 'v1 only (v2 stripped): refused');
     const stale = await deliver(svc.base, e, { now: Date.now() - 301000 });
     assert.strictEqual(stale.status, 401, 'stale v2 (outside the 300 s window): refused');
-    const future = await deliver(svc.base, e, { now: Date.now() + 301000 });
+    // One hour ahead, not 301 s: at the exact edge, a slow request can land inside the 300 s window.
+    const future = await deliver(svc.base, e, { now: Date.now() + 3600000 });
     assert.strictEqual(future.status, 401, 'v2 from too far in the future: refused');
     assert.strictEqual((await search('omiword')).length, 0);
     assert.strictEqual(await receipts(), 0);
