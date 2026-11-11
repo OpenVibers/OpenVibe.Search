@@ -54,7 +54,7 @@ function createEmbeddingClient({ config, fetchImpl = globalThis.fetch, tokenClie
     }
 
     /** Embed 1..64 texts. → { ok, vectors, dimensions, model, ms } | { ok: false, error, ms }. */
-    async function embed(texts) {
+    async function embed(texts, { timeoutMs = AI_TIMEOUT_MS } = {}) {
         const started = now();
         const ms = () => Math.max(0, Math.round(now() - started));
         const fail = (error) => ({ ok: false, error, ms: ms() });
@@ -65,10 +65,12 @@ function createEmbeddingClient({ config, fetchImpl = globalThis.fetch, tokenClie
         const state = available();
         if (!state.configured) return fail(state.reason);
 
+        const bounded = Math.max(100, Math.min(AI_TIMEOUT_MS, timeoutMs));
+        const timeout = AbortSignal.timeout(bounded);
         try {
             const token = await client().getToken({ audience: 'openvibe.ai' });
-            const timeout = AbortSignal.timeout(AI_TIMEOUT_MS);
-            const res = await fetchImpl(`${aiUrl}/api/v1/embed?wait=30000`, {
+            if (timeout.aborted) return fail('embedding deadline');
+            const res = await fetchImpl(`${aiUrl}/api/v1/embed?wait=${bounded}`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify({ input: inputs }),
@@ -109,7 +111,7 @@ function createEmbeddingClient({ config, fetchImpl = globalThis.fetch, tokenClie
 function createQueryEmbeddingCache({ client, now = () => Date.now(), ttlMs = 10 * 60 * 1000, max = 500 }) {
     const entries = new Map();   // insertion order is the LRU order
 
-    async function get(text) {
+    async function get(text, { timeoutMs } = {}) {
         const key = normalizeQuery(text);
         if (!key) return { ok: false, error: 'empty query' };
         const hit = entries.get(key);
@@ -121,7 +123,7 @@ function createQueryEmbeddingCache({ client, now = () => Date.now(), ttlMs = 10 
             }
             entries.delete(key);
         }
-        const r = await client.embed([key]);
+        const r = await client.embed([key], { timeoutMs });
         if (!r.ok) return { ok: false, error: r.error };
         const vector = r.vectors && r.vectors[0];
         if (!Array.isArray(vector) || !vector.length) return { ok: false, error: 'AI answered no vector' };

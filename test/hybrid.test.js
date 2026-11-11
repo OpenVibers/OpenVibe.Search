@@ -227,6 +227,21 @@ t('query falls back to keyword with no_vectors, short_query and ai_unavailable',
     }
 });
 
+t('a stuck semantic call answers from the keyword index within one second', async () => {
+    const vectors = new FakeVectors();
+    const embeddings = { ...fakeEmbeddings(), embed: () => new Promise(() => {}) };
+    const svc = await boot({ vectorStore: vectors, embeddingClient: embeddings });
+    try {
+        await svc.store.apply(doc({ id: 'quick', title: 'Search speed' }));
+        const start = Date.now();
+        const r = await request(svc.base, 'GET', '/api/v1/search?q=search%20speed');
+        assert.strictEqual(r.status, 200, r.text);
+        assert.ok(Date.now() - start < 1500, 'semantic work has a deadline');
+        assert.deepStrictEqual(r.body.results.map((x) => x.id), ['quick']);
+        assert.deepStrictEqual(r.body.explain, { ranking: 'keyword', reason: 'ai_unavailable' });
+    } finally { await svc.stop(); }
+});
+
 t('hybrid: keyword and vector top-100 are fused, ranks are per hit, and a hidden vector hit is dropped', async () => {
     const vectors = new FakeVectors();
     const embeddings = fakeEmbeddings();

@@ -241,7 +241,14 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         if (unavailable) return { ranking: 'keyword', reason: unavailable };
         if (String(text).trim().length < 2) return { ranking: 'keyword', reason: 'short_query' };
         if (!queryEmbeddings) return { ranking: 'keyword', reason: 'ai_unavailable' };
-        const embedded = await queryEmbeddings.get(text);
+        let timer;
+        let embedded;
+        try {
+            embedded = await Promise.race([
+                queryEmbeddings.get(text, { timeoutMs: 750 }),
+                new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false, error: 'embedding deadline' }), 750); }),
+            ]);
+        } finally { clearTimeout(timer); }
         if (!embedded.ok) return { ranking: 'keyword', reason: 'ai_unavailable' };
         if (vectorStore.dim && embedded.vector.length !== vectorStore.dim) return { ranking: 'keyword', reason: 'ai_unavailable' };
         return { ranking: 'hybrid', vector: embedded.vector };
@@ -298,9 +305,10 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
             if (after && after.now != null) refNow = after.now;
             const page = await engine.search({ match, filters, viewer, limit, after, now: refNow });
             let position = 0;
-            for (const h of page.hits) {
+            const foundPage = await Promise.all(page.hits.map((h) => store.byRid(h.rid)));
+            for (const [i, h] of page.hits.entries()) {
                 position++;
-                const found = await store.byRid(h.rid);
+                const found = foundPage[i];
                 // Defence in depth: the engine already filtered; re-check against the stored row.
                 if (!found || !canView(viewer, found.row, found.doc)) continue;
                 const key = dedupeKey(found.doc);
@@ -359,8 +367,9 @@ function createSearcher({ config, store, engine, vectorStore = null, embeddings 
         } else {
             if (after && after.sort_at === undefined) throw new QueryError('search.bad_cursor', 'cursor does not belong to this query');
             const page = await engine.browse({ filters, viewer, limit, after });
-            for (const h of page.hits) {
-                const found = await store.byRid(h.rid);
+            const foundPage = await Promise.all(page.hits.map((h) => store.byRid(h.rid)));
+            for (const [i, h] of page.hits.entries()) {
+                const found = foundPage[i];
                 if (!found || !canView(viewer, found.row, found.doc)) continue;
                 results.push(projection(found.doc, found.row));
             }
