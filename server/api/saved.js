@@ -77,7 +77,7 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
             query[k] = b[k];
         }
         if (b.facets != null) {
-            if (typeof b.facets !== 'object' || Array.isArray(b.facets)) throw new QueryError('search.bad_query', 'facets must be an object of key → values');
+            if (typeof b.facets !== 'object' || Array.isArray(b.facets)) throw new QueryError('search.bad_query', 'facets must be an object mapping each key to its values');
             for (const [k, v] of Object.entries(b.facets)) {
                 const values = Array.isArray(v) ? v : [v];
                 if (values.some(x => typeof x !== 'string')) throw new QueryError('search.bad_query', `facets.${k} values must be strings`);
