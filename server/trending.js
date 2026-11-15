@@ -143,6 +143,14 @@ function createTrending({ db, now = () => Date.now(), sites = new Set(), log = c
             .slice(0, limit)
             .map((r) => ({ query: r.query, searches: r.recent, rising: r.recent > r.before }));
     }
+    /** A page title as a search: its first part (before " | ", " — ", " · ", " - "), without a parenthetical or bracketed
+     *  tail ("Maticus (@Maticus)", "Fleece (Little Kid/Big Kid)"). */
+    function cleanTitle(title) {
+        let t = String(title || '').split(/\s+[|—·–]\s+|\s+-\s+/)[0];
+        t = t.replace(/\s*[([][^)\]]*[)\]]?\s*$/, '');
+        return t.trim();
+    }
+
     /** The site's own public page titles (or the network's), shuffled by the hour: what a box offers before searches trend. */
     async function suggestions(site, n, taken) {
         const rows = site ? await st.titlesFor.all(`https://${site}/%`) : await st.titlesAll.all();
@@ -150,7 +158,7 @@ function createTrending({ db, now = () => Date.now(), sites = new Set(), log = c
         const seen = new Set(taken);
         const out = [];
         for (const r of rows) {
-            const norm = normalize(r.title);
+            const norm = normalize(cleanTitle(r.title));
             if (!norm || seen.has(norm.query)) continue;
             seen.add(norm.query);
             out.push({ query: norm.shown, k: crypto.createHash('sha256').update(`${hour}|${norm.query}`).digest('hex') });

@@ -61,10 +61,12 @@ const T0 = Date.UTC(2026, 10, 15, 21, 30);
         await doc('d3', 'A private wish list', 'https://openvibe.deals/d/3', 1);
         await doc('d4', 'nude art prints', 'https://openvibe.deals/d/4');
         await doc('d5', 'Tours of Lisbon', 'https://openvibe.tours/t/5');
+        await doc('d6', 'Maticus (@Maticus)', 'https://openvibe.deals/d/6');
+        await doc('d7', 'Trail runners (Little Kid/Big Kid', 'https://openvibe.deals/d/7');
         clock += 6 * 60_000;   // past the five-minute cache
         const deals = await request(h.base, 'GET', '/api/v1/trending?site=openvibe.deals&limit=6');
         const suggested = deals.body.trending.filter((x) => x.suggested).map((x) => x.query).sort();
-        assert.deepStrictEqual(suggested, ['Noise-cancelling headphones', 'Standing desks under $300'], 'the site\'s own public pages, nothing private, explicit or of another site');
+        assert.deepStrictEqual(suggested, ['Maticus', 'Noise-cancelling headphones', 'Standing desks under $300', 'Trail runners'], 'the site\'s own public pages, cleaned, nothing private, explicit or of another site');
         assert.ok(deals.body.trending.slice(0, 2).every((x) => !x.suggested), 'what people search comes first');
         assert.ok(!JSON.stringify(all.body).includes('stolen') && !JSON.stringify(all.body).includes('track me') && !JSON.stringify(all.body).includes('do not sell'));
 
