@@ -18,6 +18,7 @@ const { createWebProviders } = require('./fabric/web');
 const { createFabric } = require('./fabric');
 const { createFrontData } = require('./web/front-data');
 const { savedRouter } = require('./api/saved');
+const { createTrending, trendingRouter, siteSet } = require('./trending');
 const { pageRouter } = require('./web/page');
 const { webhookRouter } = require('./api/webhook');
 const { createLimits } = require('./actor-limits');
@@ -101,6 +102,10 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     const fabric = createFabric({ config, searcher, cache: queryCache, web, db, now: clock, log });
     app.locals.queryCache = queryCache;
     app.locals.fabric = fabric;
+    // Trending searches (§AD.13 (1)): every search box's beacon, the trending list and Report's stats.
+    const trending = createTrending({ db, now: clock, sites: siteSet(require('openvibe-contracts')), log });
+    app.locals.trending = trending;
+    app.use(trendingRouter({ trending, express }));
     app.use(documentsRouter({ store, auth, db, outbox, purges, limits }));
     app.use(queryRouter({ config, store, engine, auth, searcher, limits }));
     app.use(fabricRouter({ fabric, auth, limits }));

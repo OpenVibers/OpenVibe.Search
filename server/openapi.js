@@ -97,6 +97,26 @@ route('get', '/documents/{owner}/{type}/{id}', {
     responses: { 200: json('The document', { type: 'object', required: ['document'], properties: { document: ref('DocumentMatch') } }), ...errors([400, 404, 429]) },
 });
 
+// ── Trending searches (§AD.13 (1); server/trending.js) ──────────────────────────────
+route('post', '/searched', {
+    operationId: 'searched', summary: 'One search typed into a search box (a beacon)', tags: ['trending'], security: ANONYMOUS,
+    description: 'JSON, or text/plain JSON from navigator.sendBeacon: { q, site? }. Counted under the request\'s Origin when it is one of the network\'s own domains (else the body\'s site when it is one). Do Not Track and Global Privacy Control count nothing; nothing personal or explicit is counted; a visitor counts at most 20 a minute. Always 204.',
+    requestBody: body({ type: 'object', properties: { q: str({ maxLength: 200 }), site: str({ maxLength: 120 }) } }),
+    responses: { 204: { description: 'Received (counted or not)' } },
+});
+route('get', '/trending', {
+    operationId: 'trending', summary: 'What people are searching for, rising first', tags: ['trending'], security: ANONYMOUS,
+    description: 'Visible to any origin. A query shows once 5 or more distinct visitors searched it in two days. The site\'s own trending come first and the network\'s fill the rest.',
+    parameters: [query('site', str({ maxLength: 120 }), 'A network domain, e.g. openvibe.exchange'), query('limit', integer({ minimum: 1, maximum: 20 }))],
+    responses: { 200: json('Trending searches', { type: 'object', required: ['trending'], properties: { site: str(), trending: arrayOf({ type: 'object', properties: { query: str(), searches: integer(), rising: { type: 'boolean' } } }), updated_at: str() } }), ...errors([429]) },
+});
+route('get', '/trending/stats', {
+    operationId: 'trendingStats', summary: 'Searches by day and site, and the top searches (OpenVibe.Report)', tags: ['trending'], security: ANONYMOUS,
+    description: 'Visible to any origin; aggregates only, no visitor and no person.',
+    parameters: [query('days', integer({ minimum: 1, maximum: 7 }))],
+    responses: { 200: json('Search statistics', { type: 'object', properties: { days: integer(), by_day: arrayOf({ type: 'object' }), by_site: arrayOf({ type: 'object' }), top: arrayOf({ type: 'object' }) } }), ...errors([429]) },
+});
+
 // ── Search Fabric ────────────────────────────────────────────────────────────────────────────
 route('post', '/query', {
     operationId: 'fabricQuery', summary: 'One Search Fabric request (index plus the web ladder)', tags: ['fabric'], security: ANONYMOUS,
