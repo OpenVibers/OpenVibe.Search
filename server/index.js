@@ -90,6 +90,9 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const queryCache = app.locals.queryCache;
     const cachePruneTimer = setInterval(async () => { try { await queryCache.prune(); } catch (err) { log.error(`[fabric] cache prune: ${err.message}`); } }, 3600 * 1000);
     cachePruneTimer.unref?.();
+    // Trending searches keep 8 days of counts and 2 of visitors (server/trending.js).
+    const trendPruneTimer = setInterval(async () => { try { await app.locals.trending.prune(); } catch (err) { log.error(`[trending] prune: ${err.message}`); } }, 3600 * 1000);
+    trendPruneTimer.unref?.();
 
     let server = null;
     let accountSubscription = null;
@@ -114,6 +117,7 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
         clearInterval(pruneTimer);
         if (accountSubscription) accountSubscription.stop();
         clearInterval(cachePruneTimer);
+        clearInterval(trendPruneTimer);
         jwks.stop();
         await outbox.stop();
         await purger.stop();
