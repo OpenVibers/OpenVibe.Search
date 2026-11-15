@@ -48,10 +48,24 @@ const T0 = Date.UTC(2026, 10, 15, 21, 30);
         const t = await request(h.base, 'GET', '/api/v1/trending?site=openvibe.exchange&limit=5');
         assert.strictEqual(t.status, 200);
         assert.strictEqual(t.headers.get('access-control-allow-origin'), '*', 'any site\'s box reads it');
-        assert.deepStrictEqual(t.body.trending.map((x) => x.query), ['Synthesizers', 'go live from a browser'], 'the site\'s own first, the network\'s after; two people are not enough; an email never');
+        assert.deepStrictEqual(t.body.trending.filter((x) => !x.suggested).map((x) => x.query), ['Synthesizers', 'go live from a browser'], 'the site\'s own first, the network\'s after; two people are not enough; an email never');
         assert.deepStrictEqual([t.body.trending[0].searches, t.body.trending[0].rising], [6, true]);
         const all = await request(h.base, 'GET', '/api/v1/trending');
-        assert.deepStrictEqual(all.body.trending.map((x) => x.query).sort(), ['Synthesizers', 'go live from a browser'].sort());
+        assert.deepStrictEqual(all.body.trending.filter((x) => !x.suggested).map((x) => x.query).sort(), ['Synthesizers', 'go live from a browser'].sort());
+
+        // Before people search, a site's own public pages fill the list (marked suggested), never a private or explicit one.
+        const doc = (id, title, url, exposure = 3) => h.db.prepare(`INSERT INTO documents (owner, type, id, revision, visibility, publication_state, exposure, index_decision, canonical_url, title, sort_at, doc, hash, via, indexed_at)
+            VALUES ('deals', 'deal', ?, 1, 'public', 'published', ?, 'index', ?, ?, ?, '{}', 'h', 'api', 0)`).run(id, exposure, url, title, `2026-11-${10 + Number(id.slice(-1))}`);
+        await doc('d1', 'Noise-cancelling headphones', 'https://openvibe.deals/d/1');
+        await doc('d2', 'Standing desks under $300', 'https://openvibe.deals/d/2');
+        await doc('d3', 'A private wish list', 'https://openvibe.deals/d/3', 1);
+        await doc('d4', 'nude art prints', 'https://openvibe.deals/d/4');
+        await doc('d5', 'Tours of Lisbon', 'https://openvibe.tours/t/5');
+        clock += 6 * 60_000;   // past the five-minute cache
+        const deals = await request(h.base, 'GET', '/api/v1/trending?site=openvibe.deals&limit=6');
+        const suggested = deals.body.trending.filter((x) => x.suggested).map((x) => x.query).sort();
+        assert.deepStrictEqual(suggested, ['Noise-cancelling headphones', 'Standing desks under $300'], 'the site\'s own public pages, nothing private, explicit or of another site');
+        assert.ok(deals.body.trending.slice(0, 2).every((x) => !x.suggested), 'what people search comes first');
         assert.ok(!JSON.stringify(all.body).includes('stolen') && !JSON.stringify(all.body).includes('track me') && !JSON.stringify(all.body).includes('do not sell'));
 
         // A busy visitor: 20 a minute.
