@@ -313,6 +313,36 @@ t('initialize and tools/list do not count against search.fabric; each tools/call
     }
 });
 
+// MCP 2026-07-28 (stateless; 2026-11-16, openvibe-sdk/mcp): the version and the method on every request, in the
+// body's _meta and the headers; server/discover; resultType on every result; a cacheable tool list.
+t('MCP 2026-07-28 is spoken beside the handshake', async () => {
+    const mcpKit = require('openvibe-sdk/mcp');
+    const modern = (method, params = {}, id = 40, headers = {}) => {
+        const built = mcpKit.modernRequest({ id, method, params, clientInfo: { name: 'test', version: '1' } });
+        return call('POST', '/mcp', { body: built.body, headers: { ...built.headers, ...headers } });
+    };
+    let r = await modern('server/discover');
+    assert.strictEqual(r.status, 200, r.text);
+    assert.deepStrictEqual([r.body.result.resultType, r.body.result.cacheScope, r.body.result._meta['io.modelcontextprotocol/serverInfo'].name], ['complete', 'public', 'openvibe-search']);
+    assert.ok(r.body.result.supportedVersions.includes('2026-07-28') && r.body.result.supportedVersions.includes('2025-06-18'));
+    r = await modern('tools/list', {}, 41);
+    assert.strictEqual(r.status, 200, r.text);
+    assert.deepStrictEqual([r.body.result.resultType, r.body.result.cacheScope, typeof r.body.result.ttlMs], ['complete', 'public', 'number']);
+    assert.ok(r.body.result.tools.length > 0);
+    // Headers that disagree with the body, and a version not spoken.
+    r = await modern('tools/list', {}, 42, { 'Mcp-Method': 'tools/call' });
+    assert.deepStrictEqual([r.status, r.body.error.code], [400, -32020]);
+    const old = mcpKit.modernRequest({ id: 43, method: 'tools/list', version: '1900-01-01' });
+    r = await call('POST', '/mcp', { body: old.body, headers: { ...old.headers } });
+    assert.strictEqual(r.status, 400, r.text);
+    // An unknown method is a 404.
+    r = await modern('resources/list', {}, 44);
+    assert.deepStrictEqual([r.status, r.body.error.code], [404, -32601]);
+    // The browser preflight lets the new headers through.
+    const options = await call('OPTIONS', '/mcp', {});
+    for (const header of ['Mcp-Method', 'Mcp-Name']) assert.match(options.headers.get('access-control-allow-headers'), new RegExp(header, 'i'));
+});
+
 t('stop', async () => { await svc.stop(); });
 
 t.run();

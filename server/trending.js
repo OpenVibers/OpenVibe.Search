@@ -11,6 +11,10 @@
  *                             Public and cached (five minutes here, a minute in browsers).
  *   GET  /api/v1/trending/stats ?days= (1..7): searches by day and by site, and the top searches, for OpenVibe.Report.
  *
+ * Until enough people search, a site's box still has something to offer: the list is filled with the titles of the
+ * site's own public pages (the newest 200, shuffled by the hour), marked `suggested: true`, under the same rules as
+ * searches (nothing personal or explicit). The box says "Try …" either way; Report's stats count searches only.
+ *
  * What may trend: a query shows only once 5 or more distinct visitors searched it in the last two days, and never one
  * that looks personal (an email, a phone number, a long number, a web address, a token) or explicit. Counting only boxes
  * people type in, never the API or agents. A visitor is sha256(daily salt + address + user agent): the salt changes
@@ -70,6 +74,10 @@ function createTrending({ db, now = () => Date.now(), sites = new Set(), log = c
         pruneTrends: db.prepare('DELETE FROM search_trends WHERE hour < ?'),
         pruneVisitors: db.prepare('DELETE FROM search_trend_visitors WHERE day < ?'),
         pruneSalts: db.prepare('DELETE FROM search_trend_salts WHERE day < ?'),
+        titlesFor: db.prepare(`SELECT title FROM documents WHERE deleted = 0 AND exposure = 3 AND title IS NOT NULL AND length(title) BETWEEN 3 AND 48
+            AND canonical_url LIKE ? ORDER BY sort_at DESC LIMIT 200`),
+        titlesAll: db.prepare(`SELECT title FROM documents WHERE deleted = 0 AND exposure = 3 AND title IS NOT NULL AND length(title) BETWEEN 3 AND 48
+            ORDER BY sort_at DESC LIMIT 200`),
     };
     const salts = new Map();
     async function saltFor(day) {
@@ -135,6 +143,29 @@ function createTrending({ db, now = () => Date.now(), sites = new Set(), log = c
             .slice(0, limit)
             .map((r) => ({ query: r.query, searches: r.recent, rising: r.recent > r.before }));
     }
+    /** A page title as a search: its first part (before " | ", " — ", " · ", " - "), without a parenthetical or bracketed
+     *  tail ("Maticus (@Maticus)", "Fleece (Little Kid/Big Kid)"). */
+    function cleanTitle(title) {
+        let t = String(title || '').split(/\s+[|—·–]\s+|\s+-\s+/)[0];
+        t = t.replace(/\s*[([][^)\]]*[)\]]?\s*$/, '');
+        return t.trim();
+    }
+
+    /** The site's own public page titles (or the network's), shuffled by the hour: what a box offers before searches trend. */
+    async function suggestions(site, n, taken) {
+        const rows = site ? await st.titlesFor.all(`https://${site}/%`) : await st.titlesAll.all();
+        const hour = Math.floor(now() / HOUR);
+        const seen = new Set(taken);
+        const out = [];
+        for (const r of rows) {
+            const norm = normalize(cleanTitle(r.title));
+            if (!norm || seen.has(norm.query)) continue;
+            seen.add(norm.query);
+            out.push({ query: norm.shown, k: crypto.createHash('sha256').update(`${hour}|${norm.query}`).digest('hex') });
+        }
+        return out.sort((a, b) => (a.k < b.k ? -1 : 1)).slice(0, n).map((x) => ({ query: x.query, suggested: true }));
+    }
+
     async function trending({ site = '', limit = 10 } = {}) {
         const n = Math.max(1, Math.min(20, Number(limit) || 10));
         const where = site ? siteOf(null, site) || '' : '';
@@ -144,7 +175,10 @@ function createTrending({ db, now = () => Date.now(), sites = new Set(), log = c
         const own = where ? await rising(where, n) : [];
         const all = own.length < n ? await rising('', n) : [];
         const seen = new Set(own.map((x) => x.query.toLowerCase()));
-        const list = [...own, ...all.filter((x) => !seen.has(x.query.toLowerCase()))].slice(0, n);
+        let list = [...own, ...all.filter((x) => !seen.has(x.query.toLowerCase()))].slice(0, n);
+        if (list.length < n) {
+            try { list = list.concat(await suggestions(where, n - list.length, list.map((x) => x.query.toLowerCase()))); } catch { /* the people's list alone */ }
+        }
         const body = { site: where || null, trending: list, updated_at: new Date(now()).toISOString() };
         cache.set(key, { at: now(), body });
         return body;

@@ -27,9 +27,11 @@ const { QueryError } = require('./query');
 const { AuthError } = require('../auth');
 const protectedResource = require('../protected-resource');
 const { SEARCH_LIMITS } = require('./fabric');
+// MCP 2026-07-28 (stateless: the version and the method on every request, server/discover) beside the handshake era.
+const mcp = require('openvibe-sdk/mcp');
 
 const PROTOCOL_VERSION = '2025-06-18';
-const SUPPORTED_VERSIONS = Object.freeze(new Set(['2025-06-18', '2025-03-26']));
+const SUPPORTED_VERSIONS = Object.freeze(new Set(['2025-11-25', '2025-06-18', '2025-03-26']));
 const BODY_LIMIT = '64kb';
 const CONTRACT_DIR = 'openvibe-contracts/contracts/search';
 // The scopes a call gets when it names none: the same default the tool's schema and the fabric use.
@@ -354,6 +356,8 @@ async function handleMessage(msg, req, viewer, deps) {
 
     const id = msg.id;
     const params = msg.params && typeof msg.params === 'object' && !Array.isArray(msg.params) ? msg.params : {};
+    // A 2026-07-28 request: headers checked against the body, every result complete, the tool list cacheable.
+    if (mcp.requestVersion(params)) return handleModern(id, msg.method, params, req, viewer, deps);
     switch (msg.method) {
         case 'initialize': {
             const requested = params.protocolVersion;
@@ -378,6 +382,24 @@ async function handleMessage(msg, req, viewer, deps) {
     }
 }
 
+const SERVER_INFO = { name: 'openvibe-search', title: 'OpenVibe Search', version: pkg.version };
+async function handleModern(id, method, params, req, viewer, deps) {
+    const bad = mcp.checkRequest({ header: (n) => req.get(n), method, params });
+    if (bad) return { response: { jsonrpc: '2.0', id, error: bad.error }, status: bad.status };
+    if (method === 'server/discover') {
+        return { response: result(id, mcp.discoverResult({ serverInfo: SERVER_INFO, capabilities: { tools: {} }, instructions: INSTRUCTIONS, versions: [...mcp.MODERN_VERSIONS, ...SUPPORTED_VERSIONS] })) };
+    }
+    // The tools are the same for everyone: a public list a client may keep for an hour.
+    if (method === 'tools/list') return { response: result(id, mcp.listResult('tools', TOOLS, { cacheScope: 'public', ttlMs: 3600000 })) };
+    if (method === 'tools/call') {
+        const out = await callTool(id, params, req, viewer, deps);
+        if (out.response && out.response.result) out.response.result = mcp.complete(out.response.result);
+        return out;
+    }
+    const nf = mcp.methodNotFound(method);
+    return { response: { jsonrpc: '2.0', id, error: nf.error }, status: nf.status };
+}
+
 function mcpRouter({ fabric, auth, limits, config }) {
     const router = express.Router();
     const searchLimit = limits('search.fabric', SEARCH_LIMITS);
@@ -391,14 +413,15 @@ function mcpRouter({ fabric, auth, limits, config }) {
 
     router.options('/mcp', (_req, res) => {
         res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Protocol-Version');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Protocol-Version, Mcp-Method, Mcp-Name');
         res.setHeader('Access-Control-Max-Age', '600');
         res.status(204).end();
     });
 
     router.post('/mcp', json, withMcpViewer(auth, config, async (req, res, viewer) => {
         const version = req.get('mcp-protocol-version');
-        if (version && !SUPPORTED_VERSIONS.has(version)) {
+        // A 2026-07-28 version is checked against the body per request (handleModern); an unknown one is refused here.
+        if (version && !SUPPORTED_VERSIONS.has(version) && !mcp.MODERN_VERSIONS.includes(version)) {
             const body = req.body;
             const id = body && !Array.isArray(body) && (typeof body.id === 'string' || typeof body.id === 'number' || body.id === null)
                 ? body.id : null;
@@ -415,16 +438,18 @@ function mcpRouter({ fabric, auth, limits, config }) {
         }
         const messages = batch ? offered : [offered];
         const responses = [];
+        let status = 200;
         for (const message of messages) {
             const out = await handleMessage(message, req, viewer, { fabric, searchLimit });
             if (out.unauthorized) return unauthorized(res, out.id, config);
             if (out.limited) return sendLimited(res, out.limited);
             if (out.response) responses.push(out.response);
+            if (out.status && !batch) status = out.status;   // 2026-07-28: a refused request is a 400, an unknown method a 404
         }
 
         // A notification (or a batch of only notifications) is accepted with no body.
         if (!responses.length) return res.status(202).end();
-        return sendRpc(res, 200, batch ? responses : responses[0]);
+        return sendRpc(res, status, batch ? responses : responses[0]);
     }));
 
     // Everything else is not part of the stateless Streamable HTTP transport this endpoint offers.
