@@ -193,14 +193,18 @@ One search over several scopes, routed the cheapest way that answers (`search.fa
 | `images`, `people` | nothing yet: `skipped: "not indexed yet"` in `route.explain` |
 
 The web ladder is `open_index` first (free, the configured `SEARCH_OPEN_INDEX_OWNERS`), then
-`deepseek` (paid), then `wikipedia` (free). Every step says what happened in `route.explain`: `ok`,
+`exchange` (paid: OpenVibe.AI's search v2, `POST /v1/search`, several engines of different kinds searched at once,
+merged by rank and deduplicated; depth `standard` asks v2's `fast`, at most $0.003, and `deep` asks v2's `standard`,
+at most $0.012, which also reads the best pages and returns the passage that answers as the snippet), then `deepseek`
+(paid, when search v2 did not answer), then `wikipedia` (free). A site filter is sent as v2's `include_domains`, and
+freshness `week` as a `from` date. Every step says what happened in `route.explain`: `ok`,
 `count`, `ms`, `cached`, `cost_usd`, or `skipped` with the reason. Depth `quick` reads the index and
 the cache only; `standard` stops climbing once it has `min(limit, 3)` results; `deep` runs every
 step and merges them, de-duplicating by URL.
 
 Only a signed-in person, or a first-party service, may trigger a paid provider.
 Anonymous callers get the open index and cached answers; the cache key is the normalized query,
-scope, step, freshness and site, so the same question typed two ways is one entry. DeepSeek calls are
+scope, step, freshness and site, so the same question typed two ways is one entry. Each paid step's calls are
 capped per day (`SEARCH_WEB_DAILY`, default 500); past the cap the step is skipped with
 `daily cap reached`. Cache TTLs: `day` freshness 1 h, `week` 6 h, otherwise 24 h.
 

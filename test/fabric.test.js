@@ -1,8 +1,8 @@
 'use strict';
 /**
  * Search Fabric (server/fabric, POST/GET /api/v1/query and /api/v1/query/providers):
- * network visibility, mine only for a person, the web ladder (open index, paid DeepSeek, free
- * Wikipedia), cache hits, quick depth, provider failures that do not sink the network scope, the
+ * network visibility, mine only for a person, the web ladder (open index, Exchange search v2, paid DeepSeek,
+ * free Wikipedia), cache hits, quick depth, provider failures that do not sink the network scope, the
  * daily cap, a bad request, GET/POST parity and CORS, provider offers, and freshness/site filters.
  */
 const assert = require('assert');
@@ -21,6 +21,9 @@ const call = (method, p, opts = {}) => request(svc.base, method, p, opts);
 
 let aiCalls = [];
 let research = null;
+// Exchange search v2 (POST /v1/search): unanswered (503) unless a test sets it, so the older steps stay covered.
+let v2Calls = [];
+let v2 = null;
 
 function response(status, json) {
     return { ok: status >= 200 && status < 300, status, json: async () => json, text: async () => JSON.stringify(json) };
@@ -62,7 +65,21 @@ async function fetchImpl(url, opts = {}) {
         if (research) return research(body, opts);
         return response(200, defaultResearch(body));
     }
+    if (u.endsWith('/v1/search')) {
+        const body = opts.body ? JSON.parse(opts.body) : {};
+        v2Calls.push({ body, auth: opts.headers && opts.headers.Authorization });
+        if (v2) return v2(body, opts);
+        return response(503, { code: 'search.unavailable' });
+    }
     throw new Error(`unexpected fetch ${u}`);
+}
+
+function v2Answer(body, rows) {
+    return response(200, {
+        results: rows,
+        queries: { asked: [body.q], variants: [], follow_ups: [], sites: [] },
+        receipt: { engine: 'multi', depth: body.depth, cost_usd: 0.0011, time_ms: 900, engines: ['brave', 'exa'], found: 9, duplicates_removed: 3, calls: [] },
+    });
 }
 
 t('boot with the web ladder configured and the fixtures indexed', async () => {
@@ -106,6 +123,7 @@ t('web anonymous: the open index runs, DeepSeek is skipped, Wikipedia answers an
     const explain = r.body.route.explain;
     assert.strictEqual(explain.find((e) => e.step === 'open_index').ok, true);
     assert.strictEqual(explain.find((e) => e.step === 'deepseek').skipped, 'paid providers need a signed-in person');
+    assert.strictEqual(explain.find((e) => e.step === 'exchange').skipped, 'paid providers need a signed-in person');
     assert.strictEqual(explain.find((e) => e.step === 'wikipedia').ok, true);
     assert.deepStrictEqual(aiCalls.map((b) => b.providers), [['wikipedia']], 'only the free provider is called');
     assert.ok(r.body.results.some((x) => x.provider === 'wikipedia'), r.text);
@@ -200,7 +218,7 @@ t('GET /api/v1/query equals the POST answer in shape and results; CORS is on GET
 t('provider offers validate against search.provider-offer@1', async () => {
     const r = await call('GET', '/api/v1/query/providers');
     assert.strictEqual(r.status, 200, r.text);
-    assert.deepStrictEqual(r.body.providers.map((p) => p.provider), ['open_index', 'deepseek', 'wikipedia']);
+    assert.deepStrictEqual(r.body.providers.map((p) => p.provider), ['open_index', 'exchange', 'deepseek', 'wikipedia']);
     for (const offer of r.body.providers) {
         const v = contracts.validate('search.provider-offer@1', offer);
         assert.ok(v.valid, `${offer.provider}: ${JSON.stringify(v.errors)}`);
@@ -234,6 +252,53 @@ t('freshness day drops an old dated result; filters.site keeps only that host', 
         assert.deepStrictEqual(site.body.results.map((x) => x.url), ['https://example.com/kept']);
     } finally {
         research = null;
+    }
+});
+
+t('web signed in: Exchange search v2 answers first, merged engines, the passage as the snippet; DeepSeek is not called', async () => {
+    aiCalls = []; v2Calls = [];
+    v2 = (body) => v2Answer(body, [
+        { title: 'Nebula &amp; hours', url: 'https://nebula.example/hours', snippet: 'short', excerpt: 'The nebula museum opens at 10:00 [passage].', engines: ['brave', 'exa'], engine: 'brave', published: new Date().toISOString() },
+        { title: 'Nebula visit', url: 'https://visit.example/nebula', snippet: 'Plan a visit', engines: ['exa'], engine: 'exa' },
+        { title: 'Nebula news', url: 'https://news.example/nebula', snippet: 'News', engines: ['brave'], engine: 'brave' },
+    ]);
+    try {
+        const r = await call('POST', '/api/v1/query', { ...asAlice, body: { q: 'nebula museum hours', scopes: ['web'], freshness: 'week', filters: { site: 'nebula.example' } } });
+        assert.strictEqual(r.status, 200, r.text);
+        const step = r.body.route.explain.find((e) => e.step === 'exchange');
+        assert.deepStrictEqual([step.ok, step.count, step.cost_usd], [true, 3, 0.0011]);
+        assert.strictEqual(r.body.route.explain.find((e) => e.step === 'deepseek').skipped, 'earlier steps answered');
+        assert.strictEqual(aiCalls.length, 0, 'the research workflow is not asked');
+        const sent = v2Calls[v2Calls.length - 1];
+        assert.strictEqual(sent.auth, 'Bearer test-ai-token', 'Search asks as its own service');
+        assert.strictEqual(sent.body.depth, 'fast', "the fabric's standard depth is v2's fast");
+        assert.deepStrictEqual(sent.body.include_domains, ['nebula.example']);
+        assert.match(sent.body.from, /^\d{4}-\d{2}-\d{2}$/, 'a week is a from date');
+        assert.strictEqual(sent.body.max_cost_usd, 0.003);
+        const first = r.body.results.find((x) => x.url === 'https://nebula.example/hours');
+        assert.ok(first, r.text);
+        assert.strictEqual(first.title, 'Nebula & hours');
+        assert.strictEqual(first.snippet, 'The nebula museum opens at 10:00 [passage].');
+        assert.strictEqual(first.provider, 'brave');
+        const v = contracts.validate('search.fabric-result@1', r.body);
+        assert.ok(v.valid, JSON.stringify(v.errors));
+    } finally {
+        v2 = null;
+    }
+});
+
+t('depth deep asks v2 standard, and still climbs the rest of the ladder', async () => {
+    aiCalls = []; v2Calls = [];
+    v2 = (body) => v2Answer(body, [{ title: 'Deep one', url: 'https://deep.example/one', snippet: 'one', engines: ['brave'] }]);
+    try {
+        const r = await call('POST', '/api/v1/query', { ...asAlice, body: { q: 'deep ladder check', scopes: ['web'], depth: 'deep' } });
+        assert.strictEqual(r.status, 200, r.text);
+        assert.strictEqual(v2Calls[0].body.depth, 'standard');
+        assert.strictEqual(v2Calls[0].body.max_cost_usd, 0.012);
+        assert.strictEqual(r.body.route.explain.find((e) => e.step === 'exchange').ok, true);
+        assert.strictEqual(r.body.route.explain.find((e) => e.step === 'deepseek').ok, true, 'deep runs every step');
+    } finally {
+        v2 = null;
     }
 });
 

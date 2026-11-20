@@ -17,7 +17,7 @@
 const contracts = require('openvibe-contracts');
 const { QueryError } = require('../api/query');
 const { cacheKey } = require('./cache');
-const { hostOf, plainText, PRICE_USD } = require('./web');
+const { hostOf, plainText, PRICE_USD, V2 } = require('./web');
 
 const DEFAULT_SCOPES = ['network'];
 const MAX_RESULTS = 100;
@@ -319,7 +319,7 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             row('open_index', { ok: true, count: added.length, ms: msSince(started, now) });
         }
 
-        async function ladder(step, providers, { paid }) {
+        async function ladder(step, providers, { paid, v2 = false }) {
             const started = now();
             const skip = (why) => row(step, { ok: false, count: 0, skipped: why });
             if (enough()) return skip('earlier steps answered');
@@ -340,13 +340,13 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             const availability = web.available();
             if (!availability.configured) return skip(availability.reason || 'not configured');
             if (paid) {
-                const stats = await providerStats('deepseek');
+                const stats = await providerStats(step);
                 if (stats.calls >= dailyCap()) return skip('daily cap reached');
             }
 
-            const r = await web.research(q, { providers, limit });
+            const r = v2 ? await web.search(q, { depth, limit, site, freshness }) : await web.research(q, { providers, limit });
             await recordProvider(step, r);
-            if (!r.ok) return row(step, { ok: false, count: 0, ms: r.ms });
+            if (!r.ok) return row(step, { ok: false, count: 0, ms: r.ms, ...(r.cost_usd ? { cost_usd: r.cost_usd } : {}) });
             const results = r.results.slice(0, limit);
             try {
                 await cache.put(key, { scope: 'web', step, results, cost_usd: r.cost_usd }, cacheTtl(freshness));
@@ -357,6 +357,8 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
             return row(step, { ok: true, count: results.length, ms: r.ms, cost_usd: r.cost_usd });
         }
 
+        // Exchange search v2 first (several engines merged); DeepSeek's search only when it did not answer.
+        await ladder('exchange', [], { paid: true, v2: true });
         await ladder('deepseek', ['deepseek'], { paid: true });
         await ladder('wikipedia', ['wikipedia'], { paid: false });
         return { results: merged.slice(0, limit), next_cursor: null, explain };
@@ -450,15 +452,25 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
     async function providers() {
         const checkedAt = new Date(now()).toISOString();
         const stats = await providerStats('deepseek');
+        const v2 = await providerStats('exchange');
         const cap = dailyCap();
         const availability = web.available();
-        const reason = !availability.configured ? availability.reason
-            : fabric.web === false ? 'web search is off'
-                : stats.calls >= cap ? 'daily cap reached' : null;
+        const off = !availability.configured ? availability.reason : fabric.web === false ? 'web search is off' : null;
+        const reason = off || (stats.calls >= cap ? 'daily cap reached' : null);
+        const v2Reason = off || (v2.calls >= cap ? 'daily cap reached' : null);
         return [
             {
                 provider: 'open_index', scopes: ['web'], price_usd_per_call: 0,
                 independent_index: true, available: true, checked_at: checkedAt,
+            },
+            {
+                provider: 'exchange', scopes: ['web'], price_usd_per_call: V2.standard.maxUsd,
+                independent_index: false, available: !v2Reason, reason: v2Reason || null,
+                daily_cap: cap, used_today: v2.calls,
+                latency_ms_p50: v2.calls ? Math.round(v2.ms_total / v2.calls) : null,
+                answered_rate: v2.calls ? v2.answered / v2.calls : null,
+                terms_url: 'https://openvibe.exchange/search',
+                checked_at: checkedAt,
             },
             {
                 provider: 'deepseek', scopes: ['web', 'news'], price_usd_per_call: PRICE_USD,
