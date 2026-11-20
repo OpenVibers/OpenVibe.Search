@@ -158,6 +158,14 @@ deleted) is gone and what they gained appears. Someone else's saved search is th
 missing one; guests cannot save; a cookie-authenticated POST/DELETE must carry this origin's
 `Origin`.
 
+**Watching the web** (plan AD.34 item 6): `POST /api/v1/saved-searches { "q": "…", "scope": "web" }` saves words
+(no network filters) to watch on the web, at most 10 per person. Once a day (the same notifier tick, when the watch has
+not run for a day) it runs through the fabric's web scope (Exchange search v2) as its owner. The first run records what
+is there; after that, results whose canonical addresses it has not shown before make one notification (type
+`SEARCH_WEB_WATCH`: how many, the newest's title, a link to it, and the first three in `rich_content`). What it has
+shown is kept as short hashes (`seen`, at most 300), never the pages; a run that found nothing because a web step
+failed stays due. `GET …/results` runs a watch now and answers the web results.
+
 **Notifications of new matches** ([server/saved-notifier.js](server/saved-notifier.js)) are off
 unless `SEARCH_SAVED_NOTIFY=1`; they also need `OV_OAUTH_CLIENT_SECRET` (the Network OAuth client
 `search`, client credentials) and stay off without it, which `/api/ready` reports as

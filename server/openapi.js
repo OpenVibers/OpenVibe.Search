@@ -167,9 +167,9 @@ route('get', '/saved-searches', {
 });
 route('post', '/saved-searches', {
     operationId: 'saveSearch', summary: 'Save a query (201 new, 200 already saved)', tags: ['saved-searches'], security: PERSON,
-    description: 'A saved search needs words or at least one filter. A cookie-authenticated write must come from this origin.',
+    description: 'A saved search needs words or at least one filter. scope web watches the web for its words once a day (no network filters, at most 10 per person): the owner is told of results not shown before. A cookie-authenticated write must come from this origin.',
     requestBody: body({ type: 'object', properties: {
-        name: str({ maxLength: 100 }), q: str({ maxLength: 500 }), owner, type, lang: str(),
+        name: str({ maxLength: 100 }), q: str({ maxLength: 500 }), owner, type, lang: str(), scope: str({ enum: ['network', 'web'] }),
         facets: { type: 'object', additionalProperties: { oneOf: [str(), arrayOf(str())] } },
     } }, false),
     responses: { 201: json('The saved search', { type: 'object', required: ['saved_search'], properties: { saved_search: ref('SavedSearch') } }),
@@ -247,6 +247,7 @@ function openapi() {
                 SavedSearch: { type: 'object', required: ['id', 'name', 'q', 'filters'], properties: {
                     id: str(), name: str(), q: str(), filters: { type: 'object' },
                     created_at: str({ format: 'date-time' }), updated_at: str({ format: 'date-time' }), last_run_at: nullable('string', { format: 'date-time' }),
+                    scope: str({ enum: ['network', 'web'] }), web_checked_at: nullable('string', { format: 'date-time' }),
                 } },
             },
         },

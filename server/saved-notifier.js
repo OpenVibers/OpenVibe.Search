@@ -12,8 +12,15 @@
  * out, there was nothing new, or the person no longer exists on Network. A failed push (or run)
  * leaves it, so the same hits are retried on the next tick; a delivered batch is never notified twice.
  *
- * createSavedNotifier({ config, saved, searcher, network, now?, log? }) → { start, stop, tick, running, state }
+ * Web watches (scope 'web', plan AD.34 item 6): on the same tick, the watches not run for webEveryMs (a day) run their
+ * words through the fabric's web scope as their owner. The first run only records what is there; after that, results
+ * whose canonical keys the watch has not shown before make ONE notification (how many, the newest's title, and its
+ * address). What it has shown is kept as short hashes, at most 300. A failed run leaves the watch due again.
+ *
+ * createSavedNotifier({ config, saved, searcher, network, fabric?, now?, log? }) → { start, stop, tick, running, state }
  */
+const { seenKey } = require('./saved');
+const { urlKey } = require('./fabric');
 
 const MAX_TITLE = 120;
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -57,7 +64,23 @@ function notificationFor(config, s, body) {
     };
 }
 
-function createSavedNotifier({ config, saved, searcher, network, now = () => Date.now(), log = console }) {
+function webNotificationFor(s, fresh) {
+    const top = fresh[0].title || fresh[0].url;
+    return {
+        type: 'SEARCH_WEB_WATCH',
+        service: 'search',
+        category: 'service',
+        priority: 'normal',
+        icon: '🔍',
+        title: clip(`New on the web for “${s.name}”`, MAX_TITLE),
+        message: fresh.length === 1 ? clip(top, 300) : clip(`${fresh.length} new results, including “${top}”`, 300),
+        url: fresh[0].url,
+        rich_content: { saved_search_id: s.id, count: fresh.length, results: fresh.slice(0, 3).map((r) => ({ title: clip(String(r.title || ''), MAX_TITLE), url: r.url })) },
+    };
+}
+
+function createSavedNotifier({ config, saved, searcher, network, fabric = null, now = () => Date.now(), log = console }) {
+    const fabricNow = () => (typeof fabric === 'function' ? fabric() : fabric);
     const off = disabledReason(config);
     let timer = null;
     let ticking = null;
@@ -89,6 +112,36 @@ function createSavedNotifier({ config, saved, searcher, network, now = () => Dat
             }
         }
         if (out.failed) log.warn(`[saved-notify] ${out.failed} saved search(es) not notified yet; will retry`);
+        const f = fabricNow();
+        if (f) {
+            const webOut = { checked: 0, notified: 0, baseline: 0, unchanged: 0, failed: 0 };
+            const every = (config.savedSearches && config.savedSearches.webEveryMs) || 24 * 3600 * 1000;
+            const batch = (config.savedSearches && config.savedSearches.webBatch) || 20;
+            for (const s of await saved.dueWeb(batch, at - every)) {
+                webOut.checked++;
+                try {
+                    const body = await f.query({ q: s.q, scopes: ['web'], limit: 10 }, { kind: 'user', subject: s.subject });
+                    const rows = (body.results || []).filter((r) => r && r.scope === 'web' && r.url);
+                    // Nothing found because a web step failed is a failed run (due again on the next tick), not an empty web.
+                    const stepFailed = ((body.route && body.route.explain) || []).some((e) => e && e.scope === 'web' && e.ok === false && !e.skipped);
+                    if (!rows.length && stepFailed) throw new Error('the web steps did not answer');
+                    const keyed = rows.map((r) => ({ r, k: seenKey(urlKey(r.url) || r.url) }));
+                    const known = new Set(s.seen);
+                    const fresh = keyed.filter((x) => !known.has(x.k));
+                    if (!s.seen.length) webOut.baseline++;
+                    else if (fresh.length) {
+                        const sent = await network.push(s.subject, webNotificationFor(s, fresh.map((x) => x.r)));
+                        if (sent.sent) webOut.notified++;
+                    } else webOut.unchanged++;
+                    await saved.markWeb(s.id, [...new Set([...fresh.map((x) => x.k), ...s.seen])], at);
+                } catch (err) {
+                    webOut.failed++;
+                    if (webOut.failed === 1) log.warn(`[saved-notify] web ${s.id}: ${err.message}`);
+                }
+            }
+            // Counted only when a web watch ran, so a tick of the network's saved searches reads as it always did.
+            if (webOut.checked) out.web = webOut;
+        }
         return out;
     }
 
@@ -118,4 +171,4 @@ function createSavedNotifier({ config, saved, searcher, network, now = () => Dat
     };
 }
 
-module.exports = { createSavedNotifier, disabledReason, pageUrl };
+module.exports = { createSavedNotifier, disabledReason, pageUrl, webNotificationFor };

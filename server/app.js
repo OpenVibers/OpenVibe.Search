@@ -116,7 +116,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     }
     // MCP over Streamable HTTP: the same fabric, viewer and search.fabric limit as the query route above.
     app.use(mcpRouter({ fabric, auth, limits, config }));
-    app.use(savedRouter({ config, saved, searcher, auth, limits }));
+    app.use(savedRouter({ config, saved, searcher, auth, limits, fabric }));
     // GET / (HTML search page for browsers, the text route index otherwise), /robots.txt, /llms.txt and
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
     // The front page's numbers and shelves (server/web/front-data.js): read as an anonymous visitor, kept five minutes.
