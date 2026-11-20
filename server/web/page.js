@@ -268,7 +268,7 @@ const FAQ = [
     ['What does OpenVibe.Search search?', 'What the OpenVibe sites publish: jobs, streams and clips, blog posts, forum threads, hosting plans, coupons, places and products, rental cities, tools, help articles, quests and more. Each site sends its documents as it publishes them.'],
     ['Does it show anything private?', 'Never to anyone who should not see it. Signed out, you see public, published documents only. Private, draft and deleted documents are never listed, and a document that is removed or made private leaves the results at once.'],
     ['How fresh are the results?', 'A document is indexed when its site publishes or changes it, through OpenVibe.Events, so new jobs, streams and posts show up within moments.'],
-    ['Can I be told about new results?', 'Yes. Save a search while signed in (POST /api/v1/saved-searches) and OpenVibe.Network sends you one notification when new matches appear.'],
+    ['Can I be told about new results?', 'Yes. Save a search while signed in (POST /api/v1/saved-searches) and OpenVibe.Network sends you one notification when new matches appear. To watch the whole web instead, save it with "scope": "web" (or ask your agent on OpenVibe.Actor to watch the web for you): once a day it searches the web and tells you only about results it has not shown you before.'],
     ['Can my app use it?', 'Yes. GET /api/v1/search answers JSON with no account for public documents, and openvibe-sdk/search wraps it, with suggestions and filters by site, type and facet.'],
     ['Why is a result missing?', 'The index holds what the sites have sent so far. A site adds its documents as it publishes them, so some older pages are not in it yet.'],
 ];
