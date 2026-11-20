@@ -204,12 +204,13 @@ t('openvibe_search_providers lists one line per provider with price and availabi
     assert.strictEqual(r.status, 200, r.text);
     assert.strictEqual(r.body.result.isError, false);
     const providers = r.body.result.structuredContent.providers;
-    assert.deepStrictEqual(providers.map((p) => p.provider), ['open_index', 'deepseek', 'wikipedia']);
+    assert.deepStrictEqual(providers.map((p) => p.provider), ['open_index', 'exchange', 'deepseek', 'wikipedia']);
     const lines = r.body.result.content[0].text.split('\n');
-    assert.strictEqual(lines.length, 3);
+    assert.strictEqual(lines.length, 4);
     for (const line of lines) assert.match(line, /available/);
     assert.match(lines[0], /^open_index: .*free/);
-    assert.match(lines[1], /^deepseek: .*per call/);
+    assert.match(lines[1], /^exchange: .*per call/);
+    assert.match(lines[2], /^deepseek: .*per call/);
 });
 
 t('a bad argument is a tool result with isError true, not a JSON-RPC error', async () => {
