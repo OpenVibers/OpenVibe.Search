@@ -23,7 +23,7 @@ const { withViewer, QueryError, one } = require('./query');
 
 const NAME_MAX = 100;
 
-function savedRouter({ config, saved, searcher, auth, limits }) {
+function savedRouter({ config, saved, searcher, auth, limits, fabric = null }) {
     const router = express.Router();
     const selfOrigin = (() => { try { return new URL(config.baseUrl).origin; } catch { return null; } })();
 
@@ -67,6 +67,9 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
         if (!b) return http.sendProblem(res, 400, 'search.bad_saved_search', { detail: 'body must be a JSON object', ctx });
         const q = b.q == null ? '' : b.q;
         const name = b.name == null ? '' : b.name;
+        // scope web: watch the web for these words (once a day, the owner told of results not shown before).
+        const scope = b.scope == null ? 'network' : b.scope;
+        if (!['network', 'web'].includes(scope)) throw new QueryError('search.bad_saved_search', 'scope is network or web');
         if (typeof q !== 'string' || q.length > 500) throw new QueryError('search.bad_query', 'q must be a string of at most 500 characters');
         if (typeof name !== 'string' || name.trim().length > NAME_MAX) throw new QueryError('search.bad_saved_search', `name must be a string of at most ${NAME_MAX} characters`);
         // The filters take the same shape and checks as the query string of /api/v1/search.
@@ -89,8 +92,10 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
         const text = q.trim();
         if (text && !searcher.hasWords(text)) throw new QueryError('search.bad_query', 'q has no searchable words');
         if (!text && !hasFilter) throw new QueryError('search.bad_saved_search', 'a saved search needs words (q) or at least one filter');
-        const r = await saved.save(subject, { name: name.trim(), q: text, filters });
+        if (scope === 'web' && (!text || hasFilter)) throw new QueryError('search.bad_saved_search', 'watching the web takes words (q) and no network filters');
+        const r = await saved.save(subject, { name: name.trim(), q: text, filters, scope });
         if (r.error === 'limit') return http.sendProblem(res, 409, 'search.saved_search_limit', { detail: `at most ${saved.maxPerSubject} saved searches per person`, ctx });
+        if (r.error === 'web_limit') return http.sendProblem(res, 409, 'search.saved_search_limit', { detail: `at most ${saved.maxWebPerSubject} web watches per person`, ctx });
         res.status(r.created ? 201 : 200).json({ saved_search: r.saved });
     }));
 
@@ -114,6 +119,13 @@ function savedRouter({ config, saved, searcher, auth, limits }) {
         if (!subject) return;
         const s = await saved.get(subject, req.params.id);
         if (!s) return http.sendProblem(res, 404, 'search.not_found', { detail: 'no such saved search', ctx: req.ov });
+        if (s.scope === 'web') {
+            // A web watch run now: the fabric's web scope as the person (the same call the daily run makes).
+            if (!fabric) return http.sendProblem(res, 503, 'search.unavailable', { detail: 'web search is not available here', ctx: req.ov });
+            const web = await fabric.query({ q: s.q, scopes: ['web'], limit: 10 }, viewer);
+            await saved.markRun(s.id);
+            return res.json({ saved_search: { id: s.id, name: s.name, scope: 'web' }, results: web.results, route: web.route });
+        }
         const body = await searcher.run({
             text: s.q,
             filters: { ...s.filters, facets: s.filters.facets || [] },

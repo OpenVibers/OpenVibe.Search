@@ -68,13 +68,16 @@ async function start({ config, db: givenDb = null, now = () => Date.now(), fetch
     const codeSearch = createCodeSearch({ config, registry: codeRegistry, now });
     const codeDeep = createCodeDeep({ config, registry: codeRegistry, search: codeSearch, fetchImpl, now, log });
     // Saved-search notifications through Network: off unless SEARCH_SAVED_NOTIFY=1 with the `search` client's secret.
+    let app = null;
     const notifier = createSavedNotifier({
         config, saved, searcher, now, log,
+        // The fabric lives in the app (made below); the notifier asks for it at tick time.
+        fabric: () => (app && app.locals ? app.locals.fabric : null),
         network: networkPush || createNetworkPush({ config, fetchImpl }),
     });
     const accountData = accountDataLib.create({ db, log });
     const accountSend = config.oauth.clientSecret ? createNetworkSender({ networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret }) : null;
-    const app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend, codeRegistry, codeSearch, codeDeep });
+    app = createApp({ config, db, store, engine, auth, outbox, purges, purger, saved, searcher, notifier, fetchImpl, log, now, vectorStore, embeddings: embeddingClient, accountData, accountSend, codeRegistry, codeSearch, codeDeep });
 
     // The background refresher is not started under the test runtime (the tests stub the fetch and load
     // the keys once below); a real boot refreshes on an unref'd timer. keyLoaded settles the first load.
