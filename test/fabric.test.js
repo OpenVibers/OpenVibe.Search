@@ -287,7 +287,7 @@ t('web signed in: Exchange search v2 answers first, merged engines, the passage 
     }
 });
 
-t('depth deep asks v2 standard, and still climbs the rest of the ladder', async () => {
+t('depth deep asks v2 standard, skips the DeepSeek step v2 already covered, and climbs the free steps', async () => {
     aiCalls = []; v2Calls = [];
     v2 = (body) => v2Answer(body, [{ title: 'Deep one', url: 'https://deep.example/one', snippet: 'one', engines: ['brave'] }]);
     try {
@@ -296,7 +296,9 @@ t('depth deep asks v2 standard, and still climbs the rest of the ladder', async 
         assert.strictEqual(v2Calls[0].body.depth, 'standard');
         assert.strictEqual(v2Calls[0].body.max_cost_usd, 0.012);
         assert.strictEqual(r.body.route.explain.find((e) => e.step === 'exchange').ok, true);
-        assert.strictEqual(r.body.route.explain.find((e) => e.step === 'deepseek').ok, true, 'deep runs every step');
+        assert.strictEqual(r.body.route.explain.find((e) => e.step === 'deepseek').skipped, 'search v2 asked DeepSeek already', 'not paid twice for one engine');
+        assert.ok(!aiCalls.some((c) => (c.providers || []).includes('deepseek')), 'the research workflow is not asked for DeepSeek');
+        assert.ok(r.body.route.explain.find((e) => e.step === 'wikipedia'), 'the free steps still run');
     } finally {
         v2 = null;
     }
