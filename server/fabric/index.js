@@ -359,7 +359,11 @@ function createFabric({ config, searcher, cache, web, db, now = () => Date.now()
 
         // Exchange search v2 first (several engines merged); DeepSeek's search only when it did not answer.
         await ladder('exchange', [], { paid: true, v2: true });
-        await ladder('deepseek', ['deepseek'], { paid: true });
+        // Search v2 already asks DeepSeek among its engines: when it answered, the separate DeepSeek step would pay for
+        // the same engine twice, so even a deep search goes on to the free steps only.
+        const v2Answered = explain.some((e) => e.step === 'exchange' && e.ok && e.count > 0);
+        if (v2Answered && depth === 'deep') row('deepseek', { ok: false, count: 0, skipped: 'search v2 asked DeepSeek already' });
+        else await ladder('deepseek', ['deepseek'], { paid: true });
         await ladder('wikipedia', ['wikipedia'], { paid: false });
         return { results: merged.slice(0, limit), next_cursor: null, explain };
     }
