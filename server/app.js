@@ -121,7 +121,7 @@ function createApp({ config, db, store, engine, auth, outbox, purges, purger, sa
     // /sitemap.xml (whose lastmods come from the index and the deployed release, never from the clock).
     // The front page's numbers and shelves (server/web/front-data.js): read as an anonymous visitor, kept five minutes.
     const frontData = createFrontData({ store, searcher, log });
-    const webPages = pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData });
+    const webPages = pageRouter({ searcher, auth, baseUrl: config.baseUrl, newestPublic: () => store.newestPublic(), releasedAt: release.full().released_at, owners: config.events.owners, frontData, saved });
     app.use(webPages);
     // RFC 9728: the protected-resource metadata for the MCP endpoint (server/protected-resource.js). The document a
     // client reads to learn that openvibe.network signs the tokens /mcp accepts, and the URL the 401 challenge names.

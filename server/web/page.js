@@ -268,7 +268,7 @@ const FAQ = [
     ['What does OpenVibe.Search search?', 'What the OpenVibe sites publish: jobs, streams and clips, blog posts, forum threads, hosting plans, coupons, places and products, rental cities, tools, help articles, quests and more. Each site sends its documents as it publishes them.'],
     ['Does it show anything private?', 'Never to anyone who should not see it. Signed out, you see public, published documents only. Private, draft and deleted documents are never listed, and a document that is removed or made private leaves the results at once.'],
     ['How fresh are the results?', 'A document is indexed when its site publishes or changes it, through OpenVibe.Events, so new jobs, streams and posts show up within moments.'],
-    ['Can I be told about new results?', 'Yes. Save a search while signed in (POST /api/v1/saved-searches) and OpenVibe.Network sends you one notification when new matches appear. To watch the whole web instead, save it with "scope": "web" (or ask your agent on OpenVibe.Actor to watch the web for you): once a day it searches the web and tells you only about results it has not shown you before.'],
+    ['Can I be told about new results?', 'Yes. Save a search while signed in (POST /api/v1/saved-searches) and OpenVibe.Network sends you one notification when new matches appear. To watch the whole web instead, save it with "scope": "web" (or ask your agent on OpenVibe.Actor to watch the web for you): once a day it searches the web and tells you only about results it has not shown you before. Your saved searches and watches are at /saved, each with Remove.'],
     ['Can my app use it?', 'Yes. GET /api/v1/search answers JSON with no account for public documents, and openvibe-sdk/search wraps it, with suggestions and filters by site, type and facet.'],
     ['Why is a result missing?', 'The index holds what the sites have sent so far. A site adds its documents as it publishes them, so some older pages are not in it yet.'],
 ];
@@ -457,6 +457,15 @@ ol.res mark { background: color-mix(in srgb, var(--accent) 22%, transparent); co
 .more { display: inline-block; margin-top: 16px; color: var(--accent); }
 .page-note { margin-top: 40px; color: var(--muted); font-size: .85rem; }
 .page-note a { color: inherit; }
+.saved h1 { margin: 8px 0 6px; font-size: 1.5rem; }
+.saved-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 10px; }
+.saved-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 14px; }
+.saved-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.saved-main a { font-weight: 650; color: color-mix(in srgb, var(--accent) 80%, var(--fg)); overflow-wrap: anywhere; }
+.saved-meta { color: var(--muted); font-size: .85rem; }
+.saved-row form { margin: 0; }
+.saved-remove { min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent); background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+.saved-remove:hover { border-color: color-mix(in srgb, #ef4444 60%, transparent); color: #ef4444; }
 </style>`,
         ].join('\n'),
         body: `<div id="navbar-mount"></div>
@@ -590,7 +599,18 @@ p{color:var(--text-secondary,#5c5c66);margin:0 0 22px}
 /** baseUrl (config.baseUrl) names the canonical URL of the pages that may be indexed: the front page and /updates.
  *  newestPublic() reads the newest content time among the public indexable documents (the sitemap's real
  *  lastmod); releasedAt is the deployed release's date (/updates' lastmod). */
-function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS, frontData = null }) {
+/** One saved search as a row of the /saved page: what it is, what it watches, when it last ran, and Remove. */
+function savedRow(s) {
+    const web = s.scope === 'web';
+    const when = web ? s.web_checked_at : s.last_run_at;
+    const what = web ? 'Watching the web, once a day' : 'OpenVibe pages, new matches';
+    const run = web ? `https://openvibe.exchange/search?q=${encodeURIComponent(s.q)}` : `/?q=${encodeURIComponent(s.q || '')}${s.filters && s.filters.owner ? `&owner=${encodeURIComponent(s.filters.owner)}` : ''}`;
+    return `<li class="saved-row"><div class="saved-main"><a href="${esc(run)}">${esc(s.name || s.q || 'Saved search')}</a>`
+        + `<span class="saved-meta">${esc(what)}${when ? ` · last checked ${esc(String(when).slice(0, 16).replace('T', ' '))} UTC` : ' · not checked yet'}</span></div>`
+        + `<form method="post" action="/saved/${esc(s.id)}/delete"><button type="submit" class="saved-remove">Remove</button></form></li>`;
+}
+
+function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network', newestPublic = null, releasedAt = null, owners = DEFAULT_EVENT_OWNERS, frontData = null, saved = null }) {
     const origin = String(baseUrl).replace(/\/+$/, '');
     const router = express.Router();
     // Markdown twin requests and the agent manifest go to openvibe-shared/agent-layer, mounted after this router:
@@ -634,6 +654,44 @@ function pageRouter({ searcher, auth, baseUrl = 'https://search.openvibe.network
             return next(err); // a sitemap that cannot read the index is not a sitemap of this site
         }
         res.type('application/xml').set('Cache-Control', cache.htmlHeaders({ maxAge: 3600 })).send(sitemapXml(origin, { indexLastmod, releasedAt }));
+    });
+
+    // Your saved searches and web watches (plan AD.34 item 6): what each watches, when it last ran, and Remove. Saved by
+    // the API, an agent's watch_web or the Exchange's "Watch for new results"; this is where a person sees and ends them.
+    async function personOf(req) {
+        try { const v = await auth.viewer(req); return v && v.subject && String(v.subject).startsWith('usr_') ? v.subject : null; } catch { return null; }
+    }
+    router.get('/saved', async (req, res, next) => {
+        try {
+            res.setHeader('Content-Security-Policy', CSP);
+            res.setHeader('X-Frame-Options', 'DENY');
+            res.setHeader('Cache-Control', cache.htmlHeaders({ private: true }));
+            res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+            const subject = await personOf(req);
+            let body;
+            if (!subject || !saved) {
+                body = `<section class="saved"><h1>Your saved searches</h1><p class="note">Sign in to see your saved searches and the searches that watch the web for you.</p><p><a class="more" href="/auth/login?next=%2Fsaved">Sign in</a></p></section>`;
+            } else {
+                const list = await saved.list(subject);
+                const watches = list.filter((s) => s.scope === 'web').length;
+                body = `<section class="saved"><h1>Your saved searches</h1>`
+                    + `<p class="note">${list.length ? `${list.length} saved${watches ? `, ${watches} watching the web (at most ${saved.maxWebPerSubject})` : ''}. A web watch searches once a day and tells you only about results it has not shown you before.` : 'Nothing saved yet. Ask your agent on OpenVibe.Actor to watch the web for something, or use Watch for new results on OpenVibe.Exchange\'s search.'}</p>`
+                    + (list.length ? `<ul class="saved-list">${list.map(savedRow).join('')}</ul>` : '')
+                    + (req.query.removed === '1' ? '<p class="note" role="status">Removed.</p>' : '')
+                    + '</section>';
+            }
+            res.type('html').send(layout({ title: 'Your saved searches · OpenVibe.Search', q: '', owner: '', type: '', ownHeading: true, body, noindex: true, canonical: `${origin}/saved` }));
+        } catch (err) { next(err); }
+    });
+    router.post('/saved/:id/delete', async (req, res, next) => {
+        try {
+            // A cookie-authenticated change must come from this site.
+            if (req.get('origin') !== origin) return res.status(403).type('text/plain').send('A change must come from this site.');
+            const subject = await personOf(req);
+            if (!subject || !saved) return res.redirect(303, '/auth/login?next=%2Fsaved');
+            await saved.remove(subject, req.params.id);
+            res.redirect(303, '/saved?removed=1');
+        } catch (err) { next(err); }
     });
 
     router.get('/', async (req, res, next) => {
