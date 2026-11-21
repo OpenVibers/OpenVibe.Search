@@ -120,7 +120,7 @@ function robotsTxt(origin) {
         '# openvibe.search automated-consumer policy: search engines and AI crawlers may read the front',
         '# page and the update log. Result pages carry their own X-Robots-Tag: noindex, and the API, the',
         '# Events webhook and owner writes are not for crawling.',
-        seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/', '/console'] }),
+        seo.robotsTxt({ sitemaps: [`${origin}/sitemap.xml`], allow: ['/$', '/updates'], disallow: ['/?', '/api/', '/internal/', '/console'], costly: ['/?'] }),   // a query runs the engines (quota)
         `# Agent manifest: ${origin}/.well-known/agent.json`,
     ].join('\n');
 }
